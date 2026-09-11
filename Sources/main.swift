@@ -939,9 +939,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
         menu.addItem(streakItem)
-        menu.addItem(.separator())
-        menu.addItem(item("Star on GitHub", #selector(openRepository)))
         menu.addItem(item("Share Eyesaver", #selector(share)))
+        menu.addItem(item("Star on GitHub", #selector(openRepository)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Eyesaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.forEach { if $0.action != nil { $0.target = self } }
