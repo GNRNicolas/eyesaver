@@ -59,7 +59,12 @@ with no permission at all and takes priority over other apps.
 | Break every | 1, 10, 15, 20, 25, 30, 45, 60 min, 2 h |
 | Break length | 20 s, 30 s, 1 min, 1 min 30 s, 2 min, 3 min, 5 min |
 | Shortcuts | `⌘esc / ⌘return` (default), `⌃esc / ⌃space`, `⌥esc / ⌥space`, bare `esc / space` |
+| Pause when idle | never, or after 1, 5, 10, 15, 30 min |
 | Open at Login | via `SMAppService` |
+
+The countdown stops while the keyboard and mouse are quiet, so a break never
+waits for you while you are away from the machine. The menu bar shows how many
+breaks you have taken all the way through, and offers to share a card of it.
 
 The default pair uses `return` because `⌘space` is Spotlight. The bare preset
 swallows `space` while the alert is up, which stops you finishing a sentence

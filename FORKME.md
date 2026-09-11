@@ -42,6 +42,8 @@ need to go further.
 | The words in the bar | `Bar.showPrompt()` and `Bar.switchToCountdown()` |
 | Shortcut presets | `Shortcut.spec`, one `switch`, one case per preset |
 | Menu contents | `AppDelegate.buildMenu()` |
+| Idle threshold presets | `Settings.idlePresets` |
+| The share card | `Streak`, or drop a `Resources/streak.png` template in |
 | What a break does | `AppDelegate.trigger()`, `barDidSkip()`, `barDidGo()`, `finish()` |
 
 The cycle is three phases (`idle`, `prompt`, `resting`) and four methods. If you
@@ -70,6 +72,7 @@ Each of these cost a debugging session. Details in [SPECS.md](SPECS.md).
 ```sh
 ./build.sh --install     # builds, installs to /Applications, launches
 kill -USR1 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # trigger a break now
+kill -USR2 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # render the streak card
 tail -f ~/Library/Logs/eyesaver.log
 ```
 

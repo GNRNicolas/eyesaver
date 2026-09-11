@@ -32,8 +32,22 @@ enum Settings {
     static let pillHeight: CGFloat = 60
     static let pillBottomMargin: CGFloat = 15
 
+    /// Stop counting down when the keyboard and mouse have been quiet this
+    /// long. Zero means never stop.
+    static var idleTimeout: TimeInterval {
+        get { store.object(forKey: "idleTimeout") as? TimeInterval ?? 5 * 60 }
+        set { store.set(newValue, forKey: "idleTimeout") }
+    }
+
+    /// Breaks taken all the way through, ever.
+    static var completedSessions: Int {
+        get { store.integer(forKey: "completedSessions") }
+        set { store.set(newValue, forKey: "completedSessions") }
+    }
+
     static let intervalPresets = [1, 10, 15, 20, 25, 30, 45, 60, 120].map { $0 * 60 }
     static let breakPresets = [20, 30, 60, 90, 120, 180, 300]
+    static let idlePresets = [0, 60, 300, 600, 900, 1800]
 }
 
 // MARK: - Log
@@ -61,6 +75,26 @@ enum Log {
             try? handle.truncate(atOffset: 0)
         }
         try? handle.write(contentsOf: data)
+    }
+}
+
+// MARK: - Idle
+
+/// How long the keyboard and mouse have been quiet.
+///
+/// `secondsSinceLastEventType` reports a duration, never the content of an
+/// event, so it needs no permission. There is no point counting down towards a
+/// break while nobody is at the machine.
+enum Activity {
+    private static let anyInput = CGEventType(rawValue: ~0)!   // kCGAnyInputEventType
+
+    static var idleSeconds: TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+    }
+
+    static var isIdle: Bool {
+        let limit = Settings.idleTimeout
+        return limit > 0 && idleSeconds >= limit
     }
 }
 
@@ -296,6 +330,68 @@ enum Updater {
         alert.informativeText = failure
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+// MARK: - Streak card
+
+/// The shareable card carrying the session count.
+///
+/// Drops `streak.png` from the bundle in as the background when it is there,
+/// and draws a card in the app's own palette when it is not. Swapping in a
+/// designed template means adding that file and, if needed, moving `numberY`.
+enum Streak {
+    private static let size = NSSize(width: 1200, height: 630)
+    /// Baseline of the number, as a fraction of the height from the bottom.
+    private static let numberY = 0.42
+    private static let captionY = 0.30
+
+    static func render(count: Int) -> URL? {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        let frame = NSRect(origin: .zero, size: size)
+
+        if let template = Bundle.main.url(forResource: "streak", withExtension: "png"),
+           let image = NSImage(contentsOf: template) {
+            image.draw(in: frame)
+        } else {
+            drawFallback(in: frame)
+        }
+
+        centre(Bar.compact(count),
+               font: .systemFont(ofSize: size.height * 0.26, weight: .bold),
+               colour: Settings.borderColor,
+               y: size.height * numberY, in: frame)
+        centre(count == 1 ? "break taken with Eyesaver" : "breaks taken with Eyesaver",
+               font: .systemFont(ofSize: size.height * 0.045, weight: .medium),
+               colour: NSColor(deviceWhite: 0.25, alpha: 1),
+               y: size.height * captionY, in: frame)
+
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Eyesaver.png")
+        do { try png.write(to: url) } catch { return nil }
+        return url
+    }
+
+    private static func drawFallback(in frame: NSRect) {
+        let top = NSColor(deviceRed: 0.98, green: 0.90, blue: 0.78, alpha: 1)
+        let bottom = NSColor(deviceRed: 0.99, green: 0.98, blue: 0.95, alpha: 1)
+        NSGradient(starting: bottom, ending: top)!.draw(in: frame, angle: 90)
+    }
+
+    private static func centre(_ text: String, font: NSFont, colour: NSColor, y: CGFloat, in frame: NSRect) {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
+        let string = NSAttributedString(string: text, attributes: attributes)
+        let measured = string.size()
+        string.draw(at: NSPoint(x: frame.midX - measured.width / 2, y: y))
     }
 }
 
@@ -670,6 +766,14 @@ final class Bar {
                       height: Settings.pillHeight)
     }
 
+    /// 9999 stays 9999; 10000 becomes 10k. Keeps the menu bar narrow once the
+    /// count runs into five digits.
+    static func compact(_ count: Int) -> String {
+        if count >= 1_000_000 { return "\(count / 1_000_000)M" }
+        if count >= 10_000 { return "\(count / 1_000)k" }
+        return "\(count)"
+    }
+
     static func shortFormat(_ duration: TimeInterval) -> String {
         let total = Int(duration)
         if total >= 3600 && total % 3600 == 0 { return "\(total / 3600) h" }
@@ -687,18 +791,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private let bar = Bar()
     private let shortcuts = GlobalShortcuts()
 
-    private var nextBreak: Date?
-    private var intervalTimer: Timer?
+    /// Seconds left before the next break. Decremented by the heartbeat rather
+    /// than scheduled on a Timer, so it can simply stop while the user is away
+    /// or the Mac is asleep.
+    private var remaining = Settings.interval
+    private var lastBeat = Date()
     private var breakEnd: Date?
     private var breakTimer: Timer?
     private var tick: Timer?
     private var paused = false
     private var testSignal: DispatchSourceSignal?
+    private var cardSignal: DispatchSourceSignal?
     private var lastTitle = ""
 
     private let pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
     private let autoUpdateItem = NSMenuItem(title: "Check for Updates Automatically", action: #selector(toggleAutoUpdate), keyEquivalent: "")
+    private let streakItem = NSMenuItem(title: "", action: #selector(shareStreak), keyEquivalent: "")
 
     private enum Phase { case idle, prompt, resting }
     private var phase: Phase = .idle
@@ -707,18 +816,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         Log.write("--- launch ---")
         bar.delegate = self
         buildMenu()
-        schedule()
+        resetInterval()
 
         tick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.heartbeat()
         }
 
-        // `kill -USR1 <pid>` triggers a break, handy for testing.
+        // `kill -USR1 <pid>` triggers a break, `-USR2` renders the streak card.
+        // Both are test hooks: there is no other way to reach these without
+        // clicking through the menu.
         signal(SIGUSR1, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         source.setEventHandler { [weak self] in self?.trigger() }
         source.resume()
         testSignal = source
+
+        signal(SIGUSR2, SIG_IGN)
+        let cardSource = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
+        cardSource.setEventHandler {
+            let url = Streak.render(count: max(1, Settings.completedSessions))
+            Log.write("streak card: \(url?.path ?? "render failed")")
+        }
+        cardSource.resume()
+        cardSignal = cardSource
 
         // Let launch settle before touching the network.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { Updater.check(manual: false) }
@@ -753,6 +873,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
                                 selected: Int(Settings.interval), action: #selector(pickInterval(_:))))
         menu.addItem(choiceMenu("Break Length", choices: durations(Settings.breakPresets),
                                 selected: Int(Settings.breakLength), action: #selector(pickBreakLength(_:))))
+        menu.addItem(choiceMenu("Pause When Idle", choices: idleChoices(),
+                                selected: Int(Settings.idleTimeout), action: #selector(pickIdle(_:))))
         menu.addItem(choiceMenu("Shortcuts",
                                 choices: Shortcut.allCases.enumerated().map { ($1.name, $0) },
                                 selected: Shortcut.allCases.firstIndex(of: Shortcut.current) ?? 0,
@@ -761,6 +883,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(.separator())
         menu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
         menu.addItem(autoUpdateItem)
+        menu.addItem(.separator())
+        menu.addItem(streakItem)
         menu.addItem(.separator())
         menu.addItem(item("Star on GitHub", #selector(openRepository)))
         menu.addItem(item("Share Eyesaver…", #selector(share)))
@@ -798,16 +922,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         values.map { (Bar.shortFormat(TimeInterval($0)), $0) }
     }
 
+    private func idleChoices() -> [(String, Int)] {
+        Settings.idlePresets.map { ($0 == 0 ? "Never" : "After \(Bar.shortFormat(TimeInterval($0)))", $0) }
+    }
+
+    @objc private func pickIdle(_ sender: NSMenuItem) {
+        Settings.idleTimeout = TimeInterval(sender.tag)
+        select(sender)
+    }
+
     private func refreshMenuState() {
         pauseItem.title = paused ? "Resume" : "Pause"
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         autoUpdateItem.state = Updater.automatic ? .on : .off
+        let sessions = Settings.completedSessions
+        streakItem.title = sessions == 0
+            ? "No breaks taken yet"
+            : "Share my \(sessions) break\(sessions == 1 ? "" : "s")…"
+        streakItem.isEnabled = sessions > 0
     }
 
     @objc private func pickInterval(_ sender: NSMenuItem) {
         Settings.interval = TimeInterval(sender.tag)
         select(sender)
-        schedule()
+        resetInterval()
     }
 
     @objc private func pickBreakLength(_ sender: NSMenuItem) {
@@ -841,6 +979,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
     @objc private func openRepository() { NSWorkspace.shared.open(Updater.homepage) }
 
+    /// Renders the session count onto a card and offers it to the share sheet.
+    @objc private func shareStreak() {
+        guard Settings.completedSessions > 0,
+              let anchor = statusItem.button,
+              let card = Streak.render(count: Settings.completedSessions) else { return }
+        DispatchQueue.main.async {
+            let picker = NSSharingServicePicker(items: [card, Updater.homepage])
+            picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
+        }
+    }
+
     /// The macOS share sheet, anchored on the menu bar item. Deferred: the
     /// picker cannot be presented while the menu it was invoked from is still
     /// tearing down.
@@ -858,23 +1007,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     @objc private func takeBreakNow() { trigger() }
-    @objc private func resetTimer() { finish(); schedule() }
+    @objc private func resetTimer() { finish(); resetInterval() }
 
     @objc private func togglePause() {
         paused.toggle()
-        if paused { intervalTimer?.invalidate(); finish() } else { schedule() }
+        if paused { finish() } else { resetInterval() }
         refreshMenuState()
     }
 
     // MARK: Cycle
 
-    private func schedule() {
-        intervalTimer?.invalidate()
-        guard !paused else { nextBreak = nil; return }
-        nextBreak = Date().addingTimeInterval(Settings.interval)
-        intervalTimer = Timer.scheduledTimer(withTimeInterval: Settings.interval, repeats: false) { [weak self] _ in
-            self?.trigger()
-        }
+    private func resetInterval() {
+        remaining = Settings.interval
+        lastBeat = Date()
     }
 
     private func trigger() {
@@ -894,21 +1039,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     /// Skip: everything goes away and the next delay restarts from now.
-    func barDidSkip() { finish(); schedule() }
+    func barDidSkip() { finish(); resetInterval() }
 
     /// Go: borders go away, the bar becomes a countdown. The next delay
     /// restarts from now as well.
     func barDidGo() {
-        guard phase == .prompt else { finish(); schedule(); return }
+        guard phase == .prompt else { finish(); resetInterval(); return }
         phase = .resting
         borders.hide()
         bar.switchToCountdown()
         breakEnd = Date().addingTimeInterval(Settings.breakLength)
         breakTimer?.invalidate()
         breakTimer = Timer.scheduledTimer(withTimeInterval: Settings.breakLength, repeats: false) { [weak self] _ in
+            // Only a break taken all the way through counts. Pressing Done
+            // early does not.
+            Settings.completedSessions += 1
+            Log.write("session completed (\(Settings.completedSessions) total)")
             self?.finish()
         }
-        schedule()
+        resetInterval()
     }
 
     private func finish() {
@@ -923,18 +1072,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private func heartbeat() {
         if phase == .resting, let end = breakEnd { bar.updateCountdown(end.timeIntervalSinceNow) }
 
-        let title: String
+        // Real elapsed time, not a tick count: after the Mac sleeps the clock
+        // has moved even though the heartbeat has not fired.
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastBeat)
+        lastBeat = now
+        let away = Activity.isIdle
+        if phase == .idle && !paused && !away {
+            remaining -= elapsed
+            if remaining <= 0 { trigger() }
+        }
+
+        let countdown: String
         if paused {
-            title = " —"
+            countdown = "paused"
         } else if phase != .idle {
-            title = " 0"
-        } else if let next = nextBreak {
+            countdown = "0"
+        } else if away {
+            countdown = "idle"
+        } else {
             // Whole minutes, rounded up: "1" while any second remains, never
             // "0" during the wait.
-            title = " \(max(1, Int((next.timeIntervalSinceNow / 60).rounded(.up))))"
-        } else {
-            title = " —"
+            countdown = "\(max(1, Int((remaining / 60).rounded(.up))))"
         }
+        let sessions = Settings.completedSessions
+        let title = sessions > 0 ? " \(countdown) · \(Bar.compact(sessions))" : " \(countdown)"
         if title != lastTitle {
             lastTitle = title
             statusItem.button?.title = title

@@ -29,6 +29,8 @@ if [ ! -f "Resources/$NAME.icns" ]; then
   iconutil -c icns -o "Resources/$NAME.icns" "build/$NAME.iconset"
 fi
 cp "Resources/$NAME.icns" "$APP/Contents/Resources/"
+# Optional share-card template, drawn behind the session count.
+[ -f Resources/streak.png ] && cp Resources/streak.png "$APP/Contents/Resources/"
 
 # --- Binary -----------------------------------------------------------------
 swiftc -O -target arm64-apple-macos13.0 -module-cache-path "$CACHE" \
