@@ -534,6 +534,19 @@ private final class BorderView: NSView {
         ring.path = path
     }
 
+    /// Settles on full opacity without a jump: the pulse is somewhere between
+    /// 1 and 0.12 when the break starts, and removing it alone would snap.
+    func stopBlinking() {
+        let current = ring.presentation()?.opacity ?? 1
+        ring.removeAnimation(forKey: "pulse")
+        let settle = CABasicAnimation(keyPath: "opacity")
+        settle.fromValue = current
+        settle.toValue = 1
+        settle.duration = 0.3
+        settle.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        ring.add(settle, forKey: "settle")
+    }
+
     func startBlinking() {
         let pulse = CABasicAnimation(keyPath: "opacity")
         pulse.fromValue = 1.0
@@ -550,10 +563,14 @@ private final class BorderView: NSView {
 final class Borders {
     private var windows: [NSWindow] = []
     private(set) var visible = false
+    /// Pulsing while the prompt waits for an answer, steady once the break has
+    /// started. Kept here so a display change can restore the right one.
+    private var blinking = true
 
     func show() {
         guard !visible else { return }
         visible = true
+        blinking = true
         for screen in NSScreen.screens {
             let window = NSWindow(contentRect: screen.frame, styleMask: .borderless,
                                   backing: .buffered, defer: false, screen: screen)
@@ -573,11 +590,28 @@ final class Borders {
         }
     }
 
+    /// Stops the pulse and leaves the ring up: during the break it is a steady
+    /// reminder that you are still meant to be looking away, not an alarm.
+    func hold() {
+        blinking = false
+        windows.compactMap { $0.contentView as? BorderView }.forEach { $0.stopBlinking() }
+    }
+
     func hide() {
         guard visible else { return }
         visible = false
         windows.forEach { $0.orderOut(nil) }
         windows.removeAll()
+    }
+
+    /// Rebuilds one window per display after the arrangement changes, in
+    /// whichever state the border was already in.
+    func rebuild() {
+        guard visible else { return }
+        let wasBlinking = blinking
+        hide()
+        show()
+        if !wasBlinking { hold() }
     }
 }
 
@@ -950,8 +984,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            guard let self, self.borders.visible else { return }
-            self.borders.hide(); self.borders.show()
+            self?.borders.rebuild()
         }
     }
 
@@ -1226,7 +1259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     func barDidGo() {
         guard phase == .prompt else { dismiss(); resetInterval(); return }
         phase = .resting
-        borders.hide()
+        borders.hold()
         bar.switchToCountdown()
         nudgeArmed = false
         activeSince = nil

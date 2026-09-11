@@ -12,7 +12,7 @@ is what is worth knowing before changing it.
 | `Format` | The two ways a number is written on screen |
 | `Shortcut` | The four shortcut presets, as one `Spec` table |
 | `GlobalShortcuts` | Registers and unregisters the system hotkeys |
-| `Borders` | One click-through window per display |
+| `Borders` | One click-through window per display, pulsing then steady |
 | `Bar` | The floating pill, its two states and its animations |
 | `BreakCard` | The shareable card, drawn over a bundled template |
 | `Updater` | The daily version check |

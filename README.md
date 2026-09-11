@@ -22,10 +22,10 @@ next break. No Dock icon, no window.
 
 ![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.webp)
 
-**Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) drops the border and
-turns the bar into a countdown that disappears on its own. Either way the
-interval restarts from the moment you pressed the key. Do nothing and the border
-keeps pulsing, which is the point.
+**Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) settles the border to
+a steady orange and turns the bar into a countdown, both disappearing on their
+own when the break ends. Either way the interval restarts from the moment you
+pressed the key. Do nothing and the border keeps pulsing, which is the point.
 
 ## Why
 
