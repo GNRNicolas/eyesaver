@@ -20,7 +20,7 @@ the Xcode command line tools (`xcode-select --install`). No dependencies.
 Eyesaver lives in the menu bar as a timer icon and the minutes left before your
 next break. No Dock icon, no window.
 
-![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.webp)
+![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.png)
 
 **Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) drops the border and
 turns the bar into a countdown that disappears on its own. Either way the
@@ -39,7 +39,7 @@ way:
 - Shortcuts are registered **only while the alert is up**, so no key combination
   is held hostage while you work.
 
-![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.webp)
+![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.png)
 
 ## Permissions
 
@@ -52,7 +52,7 @@ with no permission at all and takes priority over other apps.
 
 ## Settings
 
-![The menu bar menu, open](docs/menu.webp)
+![The menu bar menu, open](docs/menu.png)
 
 | Setting | Options |
 |---|---|
