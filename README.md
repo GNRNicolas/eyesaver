@@ -7,6 +7,8 @@ skip it, or take a two-minute break while it counts down.
 It never steals focus, never covers your work, and never takes a keystroke you
 were about to use.
 
+![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.webp)
+
 ## Why another one
 
 Most break reminders throw a full-screen overlay at you. That is effective and
@@ -51,7 +53,10 @@ priority over other applications, and survives rebuilds.
 
 ## Settings
 
-Everything is in the menu bar menu.
+Everything is in the menu bar menu, behind the timer icon and the minutes left
+before your next break.
+
+![The menu bar menu, open](docs/menu.webp)
 
 | Setting | Options |
 |---|---|
@@ -83,6 +88,8 @@ about you, and nothing is stored but the date of the last check. Turn it off wit
 Updates…**.
 
 ## How a break goes
+
+![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.webp)
 
 1. The border pulses and the bar appears: **Skip** and **Go**.
 2. **Skip** (`⌘esc`) dismisses everything.
