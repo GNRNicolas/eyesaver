@@ -120,7 +120,7 @@ enum Shortcut: String, CaseIterable {
 /// System-wide shortcuts through `RegisterEventHotKey` (Carbon).
 ///
 /// This is the API app launchers use, and the only way to catch a global
-/// shortcut with **no TCC permission at all** — neither Accessibility nor Input
+/// shortcut with **no TCC permission at all**: neither Accessibility nor Input
 /// Monitoring. A `CGEventTap` needs both, and the grant dies on every rebuild
 /// because an ad-hoc signature changes identity each time.
 ///
@@ -169,7 +169,7 @@ final class GlobalShortcuts {
                 Log.write("RegisterEventHotKey FAILED (key \(key), status \(status))")
             }
         }
-        Log.write("shortcuts registered: \(shortcut.name) — \(refs.count)/2")
+        Log.write("shortcuts registered: \(shortcut.name) (\(refs.count)/2)")
     }
 
     func disable() {
@@ -310,7 +310,7 @@ private final class BorderView: NSView {
         wantsLayer = true
         layer?.backgroundColor = .clear
         // A filled ring, not a stroke. A stroke is centred on its path, so both
-        // edges share one radius — and rounding the outer edge leaves a gap in
+        // edges share one radius, and rounding the outer edge leaves a gap in
         // the square bottom corners of the display.
         ring.fillColor = Settings.borderColor.cgColor
         ring.fillRule = .evenOdd
@@ -390,7 +390,7 @@ final class Borders {
 ///
 /// `layer.cornerRadius` is not enough: in `.behindWindow` blending the blur is
 /// composited by the window server across the view's whole rectangle and
-/// ignores the layer mask — which is what leaves a visible box around the pill.
+/// ignores the layer mask, which is what leaves a visible box around the pill.
 /// `maskImage` is the only clip that compositing respects.
 final class PillBackground: NSVisualEffectView {
     private let outline = CAShapeLayer()
@@ -712,7 +712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             self?.heartbeat()
         }
 
-        // `kill -USR1 <pid>` triggers a break — handy for testing.
+        // `kill -USR1 <pid>` triggers a break, handy for testing.
         signal(SIGUSR1, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         source.setEventHandler { [weak self] in self?.trigger() }
@@ -876,10 +876,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         }
     }
 
-    /// Skip — everything goes away and the next delay restarts from now.
+    /// Skip: everything goes away and the next delay restarts from now.
     func barDidSkip() { finish(); schedule() }
 
-    /// Go — borders go away, the bar becomes a countdown. The next delay
+    /// Go: borders go away, the bar becomes a countdown. The next delay
     /// restarts from now as well.
     func barDidGo() {
         guard phase == .prompt else { finish(); schedule(); return }

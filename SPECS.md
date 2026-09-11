@@ -15,7 +15,7 @@ is what is worth knowing before changing it.
 | `Updater` | The daily version check |
 | `AppDelegate` | Menu bar, timers, and the break cycle |
 
-The cycle has three phases — `idle`, `prompt`, `resting` — and every transition
+The cycle has three phases (`idle`, `prompt`, `resting`), and every transition
 goes through `trigger()`, `barDidSkip()`, `barDidGo()` or `finish()`.
 
 ## Global shortcuts without permissions
@@ -27,7 +27,7 @@ permission**. Two alternatives were tried first and both failed:
 - `NSEvent.addGlobalMonitorForEvents` is an observer by design. Its closure
   returns `Void`, so it *cannot* consume the event: the action fires, and the
   key still reaches the frontmost app.
-- `CGEventTap` can consume, but needs **two** grants — Accessibility, and Input
+- `CGEventTap` can consume, but needs **two** grants: Accessibility, and Input
   Monitoring, which macOS never asks for on its own. Worse, TCC identifies an
   authorised app by its code signature, and an ad-hoc signature changes on every
   build, so the grant dies each time you recompile.
@@ -47,7 +47,7 @@ a rounded inner one, filled.
 In `.behindWindow` blending, the blur of an `NSVisualEffectView` is composited
 by the window server across the view's whole rectangle and **ignores the layer
 mask**. `layer.cornerRadius` therefore rounds the content and leaves a visible
-box around it. `maskImage` is the only clip that compositing respects — a
+box around it. `maskImage` is the only clip that compositing respects: a
 rounded-corner `NSImage` with `resizingMode .stretch` and `capInsets` equal to
 the radius. The window shadow follows the mask too.
 
@@ -77,9 +77,9 @@ its colour from whatever is behind it.
 ## Build
 
 `build.sh` compiles, assembles the bundle, and signs it ad-hoc with a stable
-identifier. It generates the icon from `Resources/icon.png` when present — a
+identifier. It generates the icon from `Resources/icon.png` when present (a
 square 1024×1024 PNG with the rounded square already drawn in, since macOS does
-not round app icons for you — and falls back to rendering the 👀 emoji.
+not round app icons for you), and falls back to rendering the 👀 emoji.
 
 `--install` copies to `/Applications`. Note the script starts with `rm -rf
 build`.

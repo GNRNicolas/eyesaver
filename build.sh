@@ -56,7 +56,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # Ad-hoc signature with a stable identifier. Eyesaver needs no TCC permission,
-# so a rebuild never costs the user anything — see README, "Permissions".
+# so a rebuild never costs the user anything. See README, "Permissions".
 codesign --force --sign - --identifier "$ID" "$APP"
 
 # --- Install ----------------------------------------------------------------

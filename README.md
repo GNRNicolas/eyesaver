@@ -7,7 +7,7 @@ take a two-minute break while it counts down.
 ![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.webp)
 
 Most break reminders throw a full-screen overlay at you. That is effective and
-infuriating. Eyesaver aims for the opposite — impossible to miss, never in the
+infuriating. Eyesaver aims for the opposite. Impossible to miss, never in the
 way:
 
 - The border window ignores mouse events, so **clicks pass straight through**.
@@ -21,7 +21,7 @@ way:
 **Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) drops the border and
 turns the bar into a countdown that disappears on its own. Either way the
 interval restarts from the moment you pressed the key. Do nothing and the border
-keeps pulsing — that is the point.
+keeps pulsing, which is the point.
 
 ## Install
 
@@ -43,7 +43,7 @@ next break. No Dock icon, no window.
 **None.** No Accessibility, no Input Monitoring.
 
 That is deliberate. The obvious way to catch a global shortcut is `CGEventTap`,
-which needs both — and loses the grant on every rebuild, since macOS identifies
+which needs both, and loses the grant on every rebuild, since macOS identifies
 an authorised app by its code signature. `RegisterEventHotKey` does the same job
 with no permission at all and takes priority over other apps.
 
@@ -65,7 +65,7 @@ before you look away.
 ## Updates
 
 Eyesaver checks the GitHub releases page once a day and tells you when a newer
-version is out. It installs nothing — updating is `git pull && ./build.sh
+version is out. It installs nothing: updating is `git pull && ./build.sh
 --install`. One anonymous HTTPS request; nothing is sent about you. Turn it off
 with **Check for Updates Automatically**.
 
