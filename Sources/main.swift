@@ -74,46 +74,37 @@ enum Shortcut: String, CaseIterable {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "shortcut") }
     }
 
-    var name: String {
+    /// Everything that differs between presets, in one place. Five accessors
+    /// used to repeat the same four-case switch.
+    private struct Spec {
+        let name: String
+        let carbonModifiers: Int
+        let goKey: UInt16
+        let skipLabel: String
+        let goLabel: String
+    }
+
+    private var spec: Spec {
         switch self {
-        case .command: return "⌘ esc  /  ⌘ return"
-        case .control: return "⌃ esc  /  ⌃ space"
-        case .option:  return "⌥ esc  /  ⌥ space"
-        case .bare:    return "esc  /  space  (no modifier)"
+        // ⌘space is Spotlight, so the command preset uses return instead.
+        case .command: return Spec(name: "⌘ esc  /  ⌘ return", carbonModifiers: cmdKey,
+                                   goKey: keyReturn, skipLabel: "⌘esc", goLabel: "⌘↩")
+        case .control: return Spec(name: "⌃ esc  /  ⌃ space", carbonModifiers: controlKey,
+                                   goKey: keySpace, skipLabel: "⌃esc", goLabel: "⌃space")
+        case .option:  return Spec(name: "⌥ esc  /  ⌥ space", carbonModifiers: optionKey,
+                                   goKey: keySpace, skipLabel: "⌥esc", goLabel: "⌥space")
+        case .bare:    return Spec(name: "esc  /  space  (no modifier)", carbonModifiers: 0,
+                                   goKey: keySpace, skipLabel: "esc", goLabel: "space")
         }
     }
 
+    var name: String { spec.name }
     /// Carbon-style modifier mask, as expected by RegisterEventHotKey.
-    var carbonModifiers: UInt32 {
-        switch self {
-        case .command: return UInt32(cmdKey)
-        case .control: return UInt32(controlKey)
-        case .option:  return UInt32(optionKey)
-        case .bare:    return 0
-        }
-    }
-
+    var carbonModifiers: UInt32 { UInt32(spec.carbonModifiers) }
     var skipKey: UInt16 { keyEscape }
-    /// ⌘space is Spotlight, so the command preset uses return instead.
-    var goKey: UInt16 { self == .command ? keyReturn : keySpace }
-
-    var skipLabel: String {
-        switch self {
-        case .command: return "⌘esc"
-        case .control: return "⌃esc"
-        case .option:  return "⌥esc"
-        case .bare:    return "esc"
-        }
-    }
-
-    var goLabel: String {
-        switch self {
-        case .command: return "⌘↩"
-        case .control: return "⌃space"
-        case .option:  return "⌥space"
-        case .bare:    return "space"
-        }
-    }
+    var goKey: UInt16 { spec.goKey }
+    var skipLabel: String { spec.skipLabel }
+    var goLabel: String { spec.goLabel }
 
     enum Action: UInt32 { case skip = 1, go = 2 }
 }
@@ -131,7 +122,6 @@ final class GlobalShortcuts {
     private var refs: [EventHotKeyRef?] = []
     private var handler: EventHandlerRef?
     private var onAction: ((Shortcut.Action) -> Void)?
-    private(set) var active = false
 
     private static let signature: OSType = 0x45594553  // 'EYES'
 
@@ -171,14 +161,125 @@ final class GlobalShortcuts {
                 Log.write("RegisterEventHotKey FAILED (key \(key), status \(status))")
             }
         }
-        active = !refs.isEmpty
         Log.write("shortcuts registered: \(shortcut.name) — \(refs.count)/2")
     }
 
     func disable() {
         refs.forEach { if let ref = $0 { UnregisterEventHotKey(ref) } }
         refs.removeAll()
-        active = false
+    }
+}
+
+// MARK: - Updates
+
+/// Asks GitHub whether a newer release exists, and points the user at it.
+///
+/// Deliberately does not download or install anything: Eyesaver is built from
+/// source, so the update is a `git pull`. One anonymous HTTPS GET, no payload,
+/// no identifier, nothing stored beyond the date of the last check.
+enum Updater {
+    static let repository = "GNRNicolas/eyesaver"
+    private static let endpoint = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    private static let checkInterval: TimeInterval = 24 * 60 * 60
+
+    static var automatic: Bool {
+        get { UserDefaults.standard.object(forKey: "autoUpdate") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "autoUpdate") }
+    }
+
+    private static var lastCheck: Date? {
+        get { UserDefaults.standard.object(forKey: "lastUpdateCheck") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "lastUpdateCheck") }
+    }
+
+    static var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// `manual` is a user-initiated check: it reports "up to date" too, and
+    /// ignores both the automatic setting and the once-a-day throttle.
+    static func check(manual: Bool) {
+        if !manual {
+            guard automatic else { return }
+            if let last = lastCheck, Date().timeIntervalSince(last) < checkInterval { return }
+        }
+        lastCheck = Date()
+
+        var request = URLRequest(url: endpoint)
+        request.timeoutInterval = 15
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            if let error {
+                Log.write("update check failed: \(error.localizedDescription)")
+                if manual { DispatchQueue.main.async { report(failure: error.localizedDescription) } }
+                return
+            }
+            guard let data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tag = json["tag_name"] as? String
+            else {
+                Log.write("update check: unreadable response")
+                if manual { DispatchQueue.main.async { report(failure: "Unreadable response from GitHub.") } }
+                return
+            }
+            let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            // Only follow a link GitHub itself served, and only over HTTPS.
+            let page = (json["html_url"] as? String).flatMap(URL.init(string:))
+            let safePage = page?.scheme == "https" && (page?.host?.hasSuffix("github.com") ?? false)
+                ? page : URL(string: "https://github.com/\(repository)/releases/latest")
+
+            Log.write("update check: local \(currentVersion), latest \(latest)")
+            DispatchQueue.main.async {
+                if isNewer(latest, than: currentVersion) {
+                    offer(version: latest, page: safePage)
+                } else if manual {
+                    report(upToDate: currentVersion)
+                }
+            }
+        }.resume()
+    }
+
+    /// Numeric component-wise comparison, so 1.10 beats 1.9.
+    static func isNewer(_ candidate: String, than current: String) -> Bool {
+        let a = candidate.split(separator: ".").map { Int($0) ?? 0 }
+        let b = current.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0
+            let y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    private static func offer(version: String, page: URL?) {
+        let alert = NSAlert()
+        alert.messageText = "Eyesaver \(version) is available"
+        alert.informativeText = """
+        You are running \(currentVersion). Eyesaver is built from source, so updating is:
+
+            git pull && ./build.sh --install
+        """
+        alert.addButton(withTitle: "View Release")
+        alert.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn, let page { NSWorkspace.shared.open(page) }
+    }
+
+    private static func report(upToDate version: String) {
+        let alert = NSAlert()
+        alert.messageText = "Eyesaver is up to date"
+        alert.informativeText = "You are running version \(version)."
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private static func report(failure: String) {
+        let alert = NSAlert()
+        alert.messageText = "Could not check for updates"
+        alert.informativeText = failure
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }
 
@@ -321,7 +422,7 @@ final class PillBackground: NSVisualEffectView {
 
 /// Dark capsule button showing its keyboard shortcut as a subscript.
 final class PillButton: NSButton {
-    private let label: String
+    private var label: String
     private var shortcut: String
     private let prominent: Bool
     private var hovered = false
@@ -342,8 +443,9 @@ final class PillButton: NSButton {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func update(shortcut newValue: String) {
-        shortcut = newValue
+    func update(label newLabel: String? = nil, shortcut newShortcut: String) {
+        if let newLabel { label = newLabel }
+        shortcut = newShortcut
         attributedTitle = makeTitle()
         invalidateIntrinsicContentSize()
     }
@@ -407,7 +509,6 @@ final class Bar {
     private let subtitle = NSTextField(labelWithString: "")
     private var skipButton: PillButton!
     private var goButton: PillButton!
-    private var doneButton: PillButton!
 
     private(set) var visible = false
 
@@ -447,10 +548,8 @@ final class Bar {
                                 target: self, action: #selector(skip))
         goButton = PillButton(label: "Go", shortcut: shortcut.goLabel, prominent: true,
                               target: self, action: #selector(go))
-        doneButton = PillButton(label: "Done", shortcut: shortcut.skipLabel, prominent: false,
-                                target: self, action: #selector(skip))
 
-        let buttons = NSStackView(views: [skipButton, goButton, doneButton])
+        let buttons = NSStackView(views: [skipButton, goButton])
         buttons.orientation = .horizontal
         buttons.spacing = 8
 
@@ -482,22 +581,19 @@ final class Bar {
         let panel = self.panel ?? build()
         self.panel = panel
         let shortcut = Shortcut.current
-        skipButton.update(shortcut: shortcut.skipLabel)
+        skipButton.update(label: "Skip", shortcut: shortcut.skipLabel)
         goButton.update(shortcut: shortcut.goLabel)
-        doneButton.update(shortcut: shortcut.skipLabel)
+        goButton.isHidden = false
         title.stringValue = "Time to look away"
         subtitle.stringValue = "Rest your eyes for \(Bar.shortFormat(Settings.breakLength))"
-        skipButton.isHidden = false
-        goButton.isHidden = false
-        doneButton.isHidden = true
         present(panel)
     }
 
     func switchToCountdown() {
         guard let panel else { return }
-        skipButton.isHidden = true
+        // Same button, new job: dismissing the countdown is still "skip".
+        skipButton.update(label: "Done", shortcut: Shortcut.current.skipLabel)
         goButton.isHidden = true
-        doneButton.isHidden = false
         title.stringValue = "Looking away"
         updateCountdown(Settings.breakLength)
         resize(panel, animated: true)
@@ -586,6 +682,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
     private let pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
+    private let autoUpdateItem = NSMenuItem(title: "Check for Updates Automatically", action: #selector(toggleAutoUpdate), keyEquivalent: "")
 
     private enum Phase { case idle, prompt, resting }
     private var phase: Phase = .idle
@@ -606,6 +703,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         source.setEventHandler { [weak self] in self?.trigger() }
         source.resume()
         testSignal = source
+
+        // Let launch settle before touching the network.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { Updater.check(manual: false) }
 
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -633,12 +733,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(item("Reset Timer", #selector(resetTimer)))
         menu.addItem(pauseItem)
         menu.addItem(.separator())
-        menu.addItem(presetMenu("Break Every", values: Settings.intervalPresets,
-                                current: Settings.interval, action: #selector(pickInterval(_:))))
-        menu.addItem(presetMenu("Break Length", values: Settings.breakPresets,
-                                current: Settings.breakLength, action: #selector(pickBreakLength(_:))))
-        menu.addItem(shortcutMenu())
+        menu.addItem(choiceMenu("Break Every", choices: durations(Settings.intervalPresets),
+                                selected: Int(Settings.interval), action: #selector(pickInterval(_:))))
+        menu.addItem(choiceMenu("Break Length", choices: durations(Settings.breakPresets),
+                                selected: Int(Settings.breakLength), action: #selector(pickBreakLength(_:))))
+        menu.addItem(choiceMenu("Shortcuts",
+                                choices: Shortcut.allCases.enumerated().map { ($1.name, $0) },
+                                selected: Shortcut.allCases.firstIndex(of: Shortcut.current) ?? 0,
+                                action: #selector(pickShortcut(_:))))
         menu.addItem(loginItem)
+        menu.addItem(.separator())
+        menu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
+        menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Eyesaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.forEach { if $0.action != nil { $0.target = self } }
@@ -652,55 +758,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         NSMenuItem(title: title, action: action, keyEquivalent: "")
     }
 
-    private func presetMenu(_ title: String, values: [Int], current: TimeInterval, action: Selector) -> NSMenuItem {
+    /// One radio-style submenu builder for every list of choices. The selected
+    /// value travels in `tag`: seconds for the durations, an index for the
+    /// shortcut presets.
+    private func choiceMenu(_ title: String, choices: [(String, Int)], selected: Int, action: Selector) -> NSMenuItem {
         let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let submenu = NSMenu()
-        for seconds in values {
-            let entry = NSMenuItem(title: Bar.shortFormat(TimeInterval(seconds)), action: action, keyEquivalent: "")
-            entry.tag = seconds
+        for (label, value) in choices {
+            let entry = NSMenuItem(title: label, action: action, keyEquivalent: "")
+            entry.tag = value
             entry.target = self
-            entry.state = Int(current) == seconds ? .on : .off
+            entry.state = value == selected ? .on : .off
             submenu.addItem(entry)
         }
         parent.submenu = submenu
         return parent
     }
 
-    private func shortcutMenu() -> NSMenuItem {
-        let parent = NSMenuItem(title: "Shortcuts", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        for shortcut in Shortcut.allCases {
-            let entry = NSMenuItem(title: shortcut.name, action: #selector(pickShortcut(_:)), keyEquivalent: "")
-            entry.representedObject = shortcut.rawValue
-            entry.target = self
-            entry.state = shortcut == Shortcut.current ? .on : .off
-            submenu.addItem(entry)
-        }
-        parent.submenu = submenu
-        return parent
+    private func durations(_ values: [Int]) -> [(String, Int)] {
+        values.map { (Bar.shortFormat(TimeInterval($0)), $0) }
     }
 
     private func refreshMenuState() {
         pauseItem.title = paused ? "Resume" : "Pause"
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        autoUpdateItem.state = Updater.automatic ? .on : .off
     }
 
     @objc private func pickInterval(_ sender: NSMenuItem) {
         Settings.interval = TimeInterval(sender.tag)
-        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
+        select(sender)
         schedule()
     }
 
     @objc private func pickBreakLength(_ sender: NSMenuItem) {
         Settings.breakLength = TimeInterval(sender.tag)
-        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
+        select(sender)
     }
 
     @objc private func pickShortcut(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let shortcut = Shortcut(rawValue: raw) else { return }
+        let shortcut = Shortcut.allCases[sender.tag]
         Shortcut.current = shortcut
-        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
+        select(sender)
         Log.write("shortcuts switched to \(shortcut.name)")
+    }
+
+    private func select(_ sender: NSMenuItem) {
+        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
     }
 
     @objc private func toggleOpenAtLogin() {
@@ -711,6 +815,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
                 try SMAppService.mainApp.register()
             }
         } catch { NSSound.beep() }
+        refreshMenuState()
+    }
+
+    @objc private func checkForUpdates() { Updater.check(manual: true) }
+
+    @objc private func toggleAutoUpdate() {
+        Updater.automatic.toggle()
         refreshMenuState()
     }
 
