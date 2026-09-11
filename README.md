@@ -1,10 +1,34 @@
-# Eyesaver
+<p align="center">
+  <img src="docs/icon.png" width="120" alt="">
+</p>
 
-A quiet break reminder for macOS. Every 20 minutes it pulses an orange border
-around your screen and slides a small dark bar up from the bottom. Skip it, or
-take a two-minute break while it counts down.
+<h1 align="center">Eyesaver</h1>
 
-![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.webp)
+<p align="center">
+  A quiet break reminder for macOS. Every 20 minutes it pulses an orange border
+  around your screen and slides a small dark bar up from the bottom.
+</p>
+
+## Install
+
+```sh
+git clone https://github.com/GNRNicolas/eyesaver.git && cd eyesaver && ./build.sh --install
+```
+
+That builds it, puts it in `/Applications` and starts it. Needs macOS 13+ and
+the Xcode command line tools (`xcode-select --install`). No dependencies.
+
+Eyesaver lives in the menu bar as a timer icon and the minutes left before your
+next break. No Dock icon, no window.
+
+![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.webp)
+
+**Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) drops the border and
+turns the bar into a countdown that disappears on its own. Either way the
+interval restarts from the moment you pressed the key. Do nothing and the border
+keeps pulsing, which is the point.
+
+## Why
 
 Most break reminders throw a full-screen overlay at you. That is effective and
 infuriating. Eyesaver aims for the opposite. Impossible to miss, never in the
@@ -16,27 +40,7 @@ way:
 - Shortcuts are registered **only while the alert is up**, so no key combination
   is held hostage while you work.
 
-![The bar: an eye, "Time to look away", "Rest your eyes for 2 min", and the Skip and Go buttons](docs/bar.webp)
-
-**Skip** (`⌘esc`) dismisses everything. **Go** (`⌘return`) drops the border and
-turns the bar into a countdown that disappears on its own. Either way the
-interval restarts from the moment you pressed the key. Do nothing and the border
-keeps pulsing, which is the point.
-
-## Install
-
-Needs macOS 13+ and the Xcode command line tools (`xcode-select --install`). No
-dependencies.
-
-```sh
-git clone https://github.com/GNRNicolas/eyesaver.git
-cd eyesaver
-./build.sh --install
-open /Applications/Eyesaver.app
-```
-
-Eyesaver lives in the menu bar as a timer icon and the minutes left before your
-next break. No Dock icon, no window.
+![An orange border pulsing around a full screen, with the Eyesaver bar at the bottom](docs/border.webp)
 
 ## Permissions
 

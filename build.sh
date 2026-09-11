@@ -63,7 +63,8 @@ codesign --force --sign - --identifier "$ID" "$APP"
 if [ "${1:-}" = "--install" ]; then
   rm -rf "/Applications/$NOM.app"
   cp -R "$APP" "/Applications/"
-  echo "→ /Applications/$NOM.app"
+  open "/Applications/$NOM.app"
+  echo "→ /Applications/$NOM.app (running)"
 else
   echo "→ $(pwd)/$APP"
 fi
