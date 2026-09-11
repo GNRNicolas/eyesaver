@@ -12,11 +12,14 @@ APP="build/$NAME.app"
 # empty one, and AppKit is most of that. Leave it where Swift puts it, shared
 # with every other project on the machine. EYESAVER_MODULE_CACHE overrides it
 # for sandboxed environments that cannot write to the default location.
-CACHE_FLAG=()
-if [ -n "${EYESAVER_MODULE_CACHE:-}" ]; then
-  mkdir -p "$EYESAVER_MODULE_CACHE"
-  CACHE_FLAG=(-module-cache-path "$EYESAVER_MODULE_CACHE")
-fi
+compile() {
+  if [ -n "${EYESAVER_MODULE_CACHE:-}" ]; then
+    mkdir -p "$EYESAVER_MODULE_CACHE"
+    swiftc "$@" -module-cache-path "$EYESAVER_MODULE_CACHE"
+  else
+    swiftc "$@"
+  fi
+}
 
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -33,7 +36,7 @@ if [ ! -f "Resources/$NAME.icns" ]; then
       sips -z "$1" "$1" Resources/icon.png --out "build/$NAME.iconset/icon_$2.png" >/dev/null
     done
   else
-    swiftc -O "${CACHE_FLAG[@]}" -o build/makeicon Tools/makeicon.swift
+    compile -O -o build/makeicon Tools/makeicon.swift
     ./build/makeicon "build/$NAME.iconset"
   fi
   iconutil -c icns -o "Resources/$NAME.icns" "build/$NAME.iconset"
@@ -43,7 +46,7 @@ cp "Resources/$NAME.icns" "$APP/Contents/Resources/"
 cp Resources/card.jpg Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
 
 # --- Binary -----------------------------------------------------------------
-swiftc -O -target arm64-apple-macos13.0 "${CACHE_FLAG[@]}" \
+compile -O -target arm64-apple-macos13.0 \
   -o "$APP/Contents/MacOS/$NAME" Sources/main.swift
 
 cat > "$APP/Contents/Info.plist" <<PLIST
