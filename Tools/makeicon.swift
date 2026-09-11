@@ -37,7 +37,7 @@ func render(_ size: CGFloat) -> NSBitmapImageRep {
     return rep
 }
 
-try? FileManager.default.createDirectory(atPath: sortie, withIntermediateDirectories: true)
+try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
 for (base, suffixes) in [(16, ["16x16"]), (32, ["16x16@2x", "32x32"]), (64, ["32x32@2x"]),
                          (128, ["128x128"]), (256, ["128x128@2x", "256x256"]),
                          (512, ["256x256@2x", "512x512"]), (1024, ["512x512@2x"])] {

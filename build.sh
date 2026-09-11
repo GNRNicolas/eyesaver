@@ -11,11 +11,21 @@ CACHE="build/.modulecache"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$CACHE"
 
-# --- Icon (👀 emoji on a dark rounded square) --------------------------------
+# --- Icon: Resources/icon.png if you made one, the 👀 emoji otherwise -------
 if [ ! -f "Resources/$NOM.icns" ]; then
-  mkdir -p Resources
-  swiftc -O -module-cache-path "$CACHE" -o build/makeicon Tools/makeicon.swift
-  ./build/makeicon "build/$NOM.iconset"
+  mkdir -p Resources "build/$NOM.iconset"
+  if [ -f Resources/icon.png ]; then
+    # A hand-made icon wins. Expects a square PNG, 1024x1024, with the rounded
+    # square already drawn in: macOS does not round app icons for you.
+    for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" \
+                "256 128x128@2x" "256 256x256" "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
+      set -- $pair
+      sips -z "$1" "$1" Resources/icon.png --out "build/$NOM.iconset/icon_$2.png" >/dev/null
+    done
+  else
+    swiftc -O -module-cache-path "$CACHE" -o build/makeicon Tools/makeicon.swift
+    ./build/makeicon "build/$NOM.iconset"
+  fi
   iconutil -c icns -o "Resources/$NOM.icns" "build/$NOM.iconset"
 fi
 cp "Resources/$NOM.icns" "$APP/Contents/Resources/"

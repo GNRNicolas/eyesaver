@@ -67,6 +67,21 @@ Spotlight. The bare `esc / space` preset is available, but be aware it swallows
 `space` while the alert is showing — which stops you finishing a sentence before
 you look away.
 
+## Updates
+
+Eyesaver checks the GitHub releases page once a day and tells you when a newer
+version is out. It downloads and installs nothing: the app is built from source,
+so updating is
+
+```sh
+git pull && ./build.sh --install
+```
+
+The check is one anonymous HTTPS request to `api.github.com`. Nothing is sent
+about you, and nothing is stored but the date of the last check. Turn it off with
+**Check for Updates Automatically**, or run it on demand with **Check for
+Updates…**.
+
 ## How a break goes
 
 1. The border pulses and the bar appears: **Skip** and **Go**.

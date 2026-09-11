@@ -1,3 +1,4 @@
 build/
 Resources/*.icns
+!Resources/icon.png
 .DS_Store
