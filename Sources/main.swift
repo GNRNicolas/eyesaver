@@ -24,6 +24,8 @@ enum Settings {
     /// display, whose bottom corners are square.
     static let borderInnerRadius: CGFloat = 22
     static let borderColor = NSColor(calibratedRed: 1.0, green: 0.47, blue: 0.06, alpha: 1.0)
+    /// Off-white, #FBFBF2. Pure white is harsh against the dark material.
+    static let ink = NSColor(srgbRed: 0xFB / 255, green: 0xFB / 255, blue: 0xF2 / 255, alpha: 1)
     static let blinkPeriod: CFTimeInterval = 1.1
 
     static let pillRadius: CGFloat = 16
@@ -400,7 +402,7 @@ final class PillBackground: NSVisualEffectView {
         state = .active
         wantsLayer = true
         outline.fillColor = nil
-        outline.strokeColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        outline.strokeColor = Settings.ink.withAlphaComponent(0.14).cgColor
         outline.lineWidth = 1
         layer?.addSublayer(outline)
         maskImage = PillBackground.mask(radius: Settings.pillRadius)
@@ -464,7 +466,7 @@ final class PillButton: NSButton {
     }
 
     private func makeTitle() -> NSAttributedString {
-        let tint: NSColor = prominent ? .black : NSColor.white.withAlphaComponent(0.92)
+        let tint: NSColor = prominent ? .black : Settings.ink.withAlphaComponent(0.92)
         let title = NSMutableAttributedString(string: label, attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: tint,
@@ -487,8 +489,8 @@ final class PillButton: NSButton {
 
     private func paint() {
         let fill: NSColor = prominent
-            ? (hovered ? .white : NSColor.white.withAlphaComponent(0.88))
-            : NSColor.white.withAlphaComponent(hovered ? 0.16 : 0.09)
+            ? (hovered ? Settings.ink : Settings.ink.withAlphaComponent(0.88))
+            : Settings.ink.withAlphaComponent(hovered ? 0.16 : 0.09)
         layer?.backgroundColor = fill.cgColor
     }
 
@@ -544,12 +546,12 @@ final class Bar {
 
         icon.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
-        icon.contentTintColor = NSColor.white.withAlphaComponent(0.75)
+        icon.contentTintColor = Settings.ink.withAlphaComponent(0.75)
 
         title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = NSColor.white.withAlphaComponent(0.95)
+        title.textColor = Settings.ink.withAlphaComponent(0.95)
         subtitle.font = .systemFont(ofSize: 11, weight: .regular)
-        subtitle.textColor = NSColor.white.withAlphaComponent(0.55)
+        subtitle.textColor = Settings.ink.withAlphaComponent(0.55)
 
         let labels = NSStackView(views: [title, subtitle])
         labels.orientation = .vertical
