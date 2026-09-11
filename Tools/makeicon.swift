@@ -20,7 +20,7 @@ func render(_ size: CGFloat) -> NSBitmapImageRep {
     let shape = NSBezierPath(roundedRect: square, xRadius: radius, yRadius: radius)
 
     let gradient = NSGradient(starting: NSColor(srgbRed: 0.20, green: 0.20, blue: 0.22, alpha: 1),
-                             ending: NSColor(srgbRed: 0.09, green: 0.09, blue: 0.11, alpha: 1))!
+                             ending: NSColor(srgbRed: 0x1E / 255, green: 0x1E / 255, blue: 0x1C / 255, alpha: 1))!
     gradient.draw(in: shape, angle: -90)
 
     NSColor.white.withAlphaComponent(0.10).setStroke()

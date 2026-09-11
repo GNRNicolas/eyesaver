@@ -26,6 +26,9 @@ enum Settings {
     static let borderColor = NSColor(calibratedRed: 1.0, green: 0.47, blue: 0.06, alpha: 1.0)
     /// Off-white, #FBFBF2. Pure white is harsh against the dark material.
     static let ink = NSColor(srgbRed: 0xFB / 255, green: 0xFB / 255, blue: 0xF2 / 255, alpha: 1)
+    /// Near-black, #1E1E1C. The warm counterpart to `ink`; pure black is not
+    /// used anywhere the eye can see it.
+    static let night = NSColor(srgbRed: 0x1E / 255, green: 0x1E / 255, blue: 0x1C / 255, alpha: 1)
     static let blinkPeriod: CFTimeInterval = 1.1
 
     static let pillRadius: CGFloat = 16
@@ -369,7 +372,7 @@ enum Streak {
                y: size.height * numberY, in: frame)
         centre(count == 1 ? "break taken with Eyesaver" : "breaks taken with Eyesaver",
                font: .systemFont(ofSize: size.height * 0.045, weight: .medium),
-               colour: NSColor(deviceWhite: 0.25, alpha: 1),
+               colour: Settings.night.withAlphaComponent(0.75),
                y: size.height * captionY, in: frame)
 
         NSGraphicsContext.restoreGraphicsState()
@@ -520,6 +523,7 @@ final class PillBackground: NSVisualEffectView {
     private static func mask(radius: CGFloat) -> NSImage {
         let side = radius * 2 + 1
         let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            // Black here is opacity, not a colour: this image is a mask.
             NSColor.black.setFill()
             NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
             return true
@@ -563,7 +567,7 @@ final class PillButton: NSButton {
     }
 
     private func makeTitle() -> NSAttributedString {
-        let tint: NSColor = prominent ? .black : Settings.ink.withAlphaComponent(0.92)
+        let tint: NSColor = prominent ? Settings.night : Settings.ink.withAlphaComponent(0.92)
         let title = NSMutableAttributedString(string: label, attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: tint,

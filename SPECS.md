@@ -64,12 +64,14 @@ For the hairline outline, a separate `CAShapeLayer` is needed;
 
 ## Colours
 
-Two values, everything else is an alpha of them.
+Three values, everything else is an alpha of them. Neither pure white nor pure
+black appears anywhere visible.
 
 | | Hex |
 |---|---|
 | Border orange | `#FF8C0E` (declared as calibrated RGB `1.0, 0.47, 0.06`) |
 | Off-white, all text and buttons | `#FBFBF2` (`Settings.ink`) |
+| Near-black, text on the Go button | `#1E1E1C` (`Settings.night`) |
 
 The pill background has no value: it is the `.hudWindow` material, so it takes
 its colour from whatever is behind it.
