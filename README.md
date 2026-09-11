@@ -8,6 +8,8 @@
   A quiet break reminder for macOS. Every 20 minutes it pulses an orange border
   around your screen and slides a small dark bar up from the bottom.
 </p>
+  A quiet break reminder for macOS. Every 20 minutes it pulses an orange border
+
 
 ## Install
 
