@@ -338,18 +338,33 @@ enum Updater {
 
 // MARK: - Streak card
 
-/// The shareable card carrying the session count.
+/// The shareable card: `streak.png` from the bundle, with the session count
+/// dropped into the empty top-right corner.
 ///
-/// Drops `streak.png` from the bundle in as the background when it is there,
-/// and draws a card in the app's own palette when it is not. Swapping in a
-/// designed template means adding that file and, if needed, moving `numberY`.
+/// Every number below is in the design's own 939x536 units and scaled up to the
+/// template's real pixels, so re-exporting the template at another resolution
+/// changes nothing here.
 enum Streak {
-    private static let size = NSSize(width: 1200, height: 630)
-    /// Baseline of the number, as a fraction of the height from the bottom.
-    private static let numberY = 0.42
-    private static let captionY = 0.30
+    private static let design = NSSize(width: 939, height: 536)
+    private static let fontSize: CGFloat = 150
+    private static let opacity: CGFloat = 0.8
+    /// Measured off the reference card: the digits end this far from the right
+    /// edge, and sit on this baseline.
+    private static let rightMargin: CGFloat = 57.5
+    private static let baselineFromTop: CGFloat = 169
+
+    /// Jersey 15 is bundled, not assumed: it ships with macOS nowhere.
+    private static let fontRegistered: Bool = {
+        guard let url = Bundle.main.url(forResource: "Jersey15-Regular", withExtension: "ttf") else { return false }
+        return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+    }()
 
     static func render(count: Int) -> URL? {
+        guard let background = Bundle.main.url(forResource: "streak", withExtension: "png")
+            .flatMap({ NSImage(contentsOf: $0) }) else { return nil }
+
+        let size = background.size
+        let scale = size.width / design.width
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -357,44 +372,34 @@ enum Streak {
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        let frame = NSRect(origin: .zero, size: size)
+        background.draw(in: NSRect(origin: .zero, size: size))
 
-        if let template = Bundle.main.url(forResource: "streak", withExtension: "png"),
-           let image = NSImage(contentsOf: template) {
-            image.draw(in: frame)
-        } else {
-            drawFallback(in: frame)
-        }
-
-        centre(Bar.compact(count),
-               font: .systemFont(ofSize: size.height * 0.26, weight: .bold),
-               colour: Settings.borderColor,
-               y: size.height * numberY, in: frame)
-        centre(count == 1 ? "break taken with Eyesaver" : "breaks taken with Eyesaver",
-               font: .systemFont(ofSize: size.height * 0.045, weight: .medium),
-               colour: Settings.night.withAlphaComponent(0.75),
-               y: size.height * captionY, in: frame)
+        _ = fontRegistered
+        let font = NSFont(name: "Jersey 15", size: fontSize * scale)
+            ?? .monospacedDigitSystemFont(ofSize: fontSize * scale, weight: .regular)
+        let text = NSAttributedString(string: Bar.compact(count), attributes: [
+            .font: font,
+            .foregroundColor: Settings.night.withAlphaComponent(opacity),
+        ])
+        // Align on the ink, not on the text box: `size()` carries the font's
+        // side bearing, which pushed the digits 5 units left of the reference.
+        // CTLineGetImageBounds measures the glyphs themselves, relative to the
+        // drawing origin and to the baseline.
+        let line = CTLineCreateWithAttributedString(text)
+        let ink = CTLineGetImageBounds(line, NSGraphicsContext.current?.cgContext)
+        // The two axes do not share an origin: draw(at:) takes the box corner,
+        // so x offsets against the ink directly, while y has to give back the
+        // descender to land on the baseline.
+        let origin = NSPoint(x: size.width - rightMargin * scale - ink.maxX,
+                             y: size.height - baselineFromTop * scale + font.descender)
+        text.draw(at: origin)
 
         NSGraphicsContext.restoreGraphicsState()
 
         guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Eyesaver.png")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Eyesaver.png")
         do { try png.write(to: url) } catch { return nil }
         return url
-    }
-
-    private static func drawFallback(in frame: NSRect) {
-        let top = NSColor(deviceRed: 0.98, green: 0.90, blue: 0.78, alpha: 1)
-        let bottom = NSColor(deviceRed: 0.99, green: 0.98, blue: 0.95, alpha: 1)
-        NSGradient(starting: bottom, ending: top)!.draw(in: frame, angle: 90)
-    }
-
-    private static func centre(_ text: String, font: NSFont, colour: NSColor, y: CGFloat, in frame: NSRect) {
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
-        let string = NSAttributedString(string: text, attributes: attributes)
-        let measured = string.size()
-        string.draw(at: NSPoint(x: frame.midX - measured.width / 2, y: y))
     }
 }
 
@@ -673,7 +678,7 @@ final class Bar {
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 12
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 12)
+        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 14)
         row.translatesAutoresizingMaskIntoConstraints = false
         row.setHuggingPriority(.defaultHigh, for: .horizontal)
 
@@ -707,8 +712,8 @@ final class Bar {
 
     func switchToCountdown() {
         guard let panel else { return }
-        // Same button, new job: dismissing the countdown is still "skip".
-        skipButton.update(label: "Done", shortcut: Shortcut.current.skipLabel)
+        // Same button, same name: dismissing the countdown is still a skip.
+        skipButton.update(label: "Skip", shortcut: Shortcut.current.skipLabel)
         goButton.isHidden = true
         title.stringValue = "Looking away"
         updateCountdown(Settings.breakLength)
@@ -761,7 +766,9 @@ final class Bar {
     }
 
     private func targetFrame(for panel: NSPanel) -> NSRect {
-        let width = max(320, (panel.contentView?.fittingSize.width ?? 320).rounded(.up))
+        // No minimum: the pill hugs its content, so the lone Skip button of the
+        // countdown state sits against the right padding instead of floating.
+        let width = (panel.contentView?.fittingSize.width ?? 320).rounded(.up)
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let area = screen.visibleFrame
         return NSRect(x: (area.midX - width / 2).rounded(),
@@ -891,7 +898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(streakItem)
         menu.addItem(.separator())
         menu.addItem(item("Star on GitHub", #selector(openRepository)))
-        menu.addItem(item("Share Eyesaver…", #selector(share)))
+        menu.addItem(item("Share Eyesaver", #selector(share)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Eyesaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.forEach { if $0.action != nil { $0.target = self } }
@@ -942,7 +949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         let sessions = Settings.completedSessions
         streakItem.title = sessions == 0
             ? "No breaks taken yet"
-            : "Share my \(sessions) break\(sessions == 1 ? "" : "s")…"
+            : "Share my \(sessions) break\(sessions == 1 ? "" : "s")"
         streakItem.isEnabled = sessions > 0
     }
 

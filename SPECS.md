@@ -76,6 +76,27 @@ black appears anywhere visible.
 The pill background has no value: it is the `.hudWindow` material, so it takes
 its colour from whatever is behind it.
 
+## The streak card
+
+`Resources/streak.png` is the background; the count is drawn into its empty
+top-right corner. Every constant in `Streak` is expressed in the design's own
+939x536 units and scaled to the template's real pixels, so re-exporting the
+template at a different resolution needs no code change.
+
+Two traps in placing that number, both measured against a reference card:
+
+- `NSAttributedString.draw(at:)` takes the bottom-left of the **text box**, not
+  the baseline. The font's descender has to be added back to land on the
+  baseline.
+- `size().width` includes the font's side bearing, which left the digits five
+  units shy of the margin. `CTLineGetImageBounds` measures the glyphs
+  themselves.
+
+Jersey 15 ships with the app (`Resources/Jersey15-Regular.ttf`, SIL Open Font
+License) and is registered at runtime with `CTFontManagerRegisterFontsForURL`.
+It is on no Mac by default, so assuming it would silently fall back to the
+system font.
+
 ## Build
 
 `build.sh` compiles, assembles the bundle, and signs it ad-hoc with a stable
