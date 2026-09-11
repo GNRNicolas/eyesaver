@@ -38,6 +38,16 @@ enum Settings {
         set { store.set(newValue, forKey: "completedSessions") }
     }
 
+    /// Played when a break runs to its end. Empty means silence.
+    static var breakEndSound: String {
+        get { store.object(forKey: "breakEndSound") as? String ?? "Hero" }
+        set { store.set(newValue, forKey: "breakEndSound") }
+    }
+
+    /// System sounds gentle enough to end a break on. They ship with macOS, so
+    /// none of them is bundled here.
+    static let soundPresets = ["Hero", "Purr", "Pop", "Glass", "Ping", "Tink", "Submarine", "Bottle"]
+
     /// Offered in the menu, in seconds.
     static let intervalPresets = [1, 10, 15, 20, 25, 30, 45, 60, 120].map { $0 * 60 }
     static let breakLengthPresets = [20, 30, 60, 90, 120, 180, 300]
@@ -89,6 +99,22 @@ enum Format {
         if total % 60 == 0 { return "\(total / 60) min" }
         return "\(total / 60) min \(total % 60) s"
     }
+}
+
+// MARK: - Sound
+
+/// The chime at the end of a break, drawn from the sounds macOS already ships.
+enum Sound {
+    /// `NSSound(named:)` hands back a shared instance, which refuses to play
+    /// again while it still thinks it is playing. Stopping first makes a second
+    /// preview audible.
+    static func play(_ name: String) {
+        guard !name.isEmpty, let sound = NSSound(named: name) else { return }
+        sound.stop()
+        sound.play()
+    }
+
+    static func playBreakEnd() { play(Settings.breakEndSound) }
 }
 
 // MARK: - Log
@@ -973,6 +999,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
                                 selected: Int(Settings.breakLength), action: #selector(pickBreakLength(_:))))
         menu.addItem(choiceMenu("Pause When Idle", choices: idleTimeoutChoices(),
                                 selected: Int(Settings.idleTimeout), action: #selector(pickIdle(_:))))
+        menu.addItem(choiceMenu("Sound", choices: soundChoices(),
+                                selected: soundIndex(of: Settings.breakEndSound),
+                                action: #selector(pickSound(_:))))
         menu.addItem(choiceMenu("Shortcuts",
                                 choices: Shortcut.allCases.enumerated().map { ($1.name, $0) },
                                 selected: Shortcut.allCases.firstIndex(of: Shortcut.current) ?? 0,
@@ -1050,6 +1079,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     @objc private func pickBreakLength(_ sender: NSMenuItem) {
         Settings.breakLength = TimeInterval(sender.tag)
         select(sender)
+    }
+
+    /// Index 0 is silence; the rest follow `Settings.soundPresets`.
+    private func soundChoices() -> [(String, Int)] {
+        [("Off", 0)] + Settings.soundPresets.enumerated().map { ($1, $0 + 1) }
+    }
+
+    private func soundIndex(of name: String) -> Int {
+        Settings.soundPresets.firstIndex(of: name).map { $0 + 1 } ?? 0
+    }
+
+    @objc private func pickSound(_ sender: NSMenuItem) {
+        let name = sender.tag == 0 ? "" : Settings.soundPresets[sender.tag - 1]
+        Settings.breakEndSound = name
+        select(sender)
+        // Picking a sound plays it: choosing one you have never heard, and
+        // waiting a full break to find out, would be a strange way to decide.
+        Sound.play(name)
     }
 
     @objc private func pickIdle(_ sender: NSMenuItem) {
@@ -1190,6 +1237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             // the countdown early does not.
             Settings.breaksTaken += 1
             Log.write("break completed (\(Settings.breaksTaken) total)")
+            Sound.playBreakEnd()
             self?.dismiss()
         }
         resetInterval()

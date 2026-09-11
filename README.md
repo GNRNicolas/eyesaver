@@ -65,7 +65,10 @@ seconds, pick a different preset from the menu. Skip and Go are buttons too.
 | Break length | 20 s, 30 s, 1 min, 1 min 30 s, 2 min, 3 min, 5 min |
 | Shortcuts | `⌘esc / ⌘return` (default), `⌃esc / ⌃space`, `⌥esc / ⌥space`, bare `esc / space` |
 | Pause when idle | never, or after 1, 5, 10, 15, 30 min |
+| Sound | Off, or one of eight macOS sounds, played when a break ends |
 | Open at Login | via `SMAppService` |
+
+Picking a sound plays it, so you can hear the list without waiting for a break.
 
 The countdown stops while the keyboard and mouse are quiet, so a break never
 waits for you while you are away from the machine.

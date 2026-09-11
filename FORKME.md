@@ -42,6 +42,7 @@ need to go further.
 | The words in the bar | `Bar.showPrompt()` and `Bar.switchToCountdown()` |
 | Shortcut presets | `Shortcut.spec`, one `switch`, one case per preset |
 | Menu contents | `AppDelegate.buildMenu()` |
+| The list of sounds | `Settings.soundPresets`, any name under `/System/Library/Sounds` |
 | The share card | `Resources/card.jpg`, plus the constants at the top of `BreakCard` |
 | What a break does | `AppDelegate.startPrompt()`, `barDidSkip()`, `barDidGo()`, `dismiss()` |
 
