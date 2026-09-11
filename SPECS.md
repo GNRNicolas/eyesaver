@@ -7,16 +7,19 @@ is what is worth knowing before changing it.
 
 | Type | Job |
 |---|---|
-| `Settings` | Every tunable value and preset list, in one place |
+| `Settings` | Every preference, with the key it is stored under |
+| `Style` | Colours and geometry, none of it persisted |
+| `Format` | The two ways a number is written on screen |
 | `Shortcut` | The four shortcut presets, as one `Spec` table |
 | `GlobalShortcuts` | Registers and unregisters the system hotkeys |
 | `Borders` | One click-through window per display |
 | `Bar` | The floating pill, its two states and its animations |
+| `BreakCard` | The shareable card, drawn over a bundled template |
 | `Updater` | The daily version check |
 | `AppDelegate` | Menu bar, timers, and the break cycle |
 
 The cycle has three phases (`idle`, `prompt`, `resting`), and every transition
-goes through `trigger()`, `barDidSkip()`, `barDidGo()` or `finish()`.
+goes through `startPrompt()`, `barDidSkip()`, `barDidGo()` or `dismiss()`.
 
 ## Global shortcuts without permissions
 
@@ -32,8 +35,27 @@ permission**. Two alternatives were tried first and both failed:
   authorised app by its code signature, and an ad-hoc signature changes on every
   build, so the grant dies each time you recompile.
 
-Hotkeys are registered in `trigger()` and released in `finish()`. Leaving them
-registered would confiscate the combination system-wide.
+Hotkeys are registered in `startPrompt()` and released in `dismiss()`. Leaving
+them registered would confiscate the combination system-wide.
+
+### Conflicts cannot be detected, only limited
+
+`RegisterEventHotKey` hands the same combination to every app that asks for it
+and returns `noErr` to all of them. Measured on macOS 15, from a signed bundle:
+a second app registering a combination the first already holds is accepted, and
+so are ⌘space and ⌘tab, which the system itself uses. There is therefore **no
+API that answers "is this combination free"**, and a menu that claimed to know
+would be guessing.
+
+What limits the damage instead:
+
+- The keys are held for the seconds an alert is on screen, not for the session.
+  Outside that window Eyesaver registers nothing at all.
+- The default preset is ⌘esc / ⌘return, neither of which macOS reserves.
+- Skip and Go are buttons first. If something upstream eats the keystroke, the
+  bar still works with the mouse, which is why it is never the only way out.
+- A refused registration is written to `~/Library/Logs/eyesaver.log`, and the
+  line after it reports how many of the two keys were obtained.
 
 ## The border is a filled ring, not a stroke
 
@@ -70,16 +92,16 @@ black appears anywhere visible.
 | | Hex |
 |---|---|
 | Border orange | `#FF8C0E` (declared as calibrated RGB `1.0, 0.47, 0.06`) |
-| Off-white, all text and buttons | `#FBFBF2` (`Settings.ink`) |
-| Near-black, text on the Go button | `#1E1E1C` (`Settings.night`) |
+| Off-white, all text and buttons | `#FBFBF2` (`Style.ink`) |
+| Near-black, text on the Go button | `#1E1E1C` (`Style.night`) |
 
 The pill background has no value: it is the `.hudWindow` material, so it takes
 its colour from whatever is behind it.
 
-## The streak card
+## The share card
 
-`Resources/streak.png` is the background; the count is drawn into its empty
-top-right corner. Every constant in `Streak` is expressed in the design's own
+`Resources/card.jpg` is the background; the count is drawn into its empty
+top-right corner. Every constant in `BreakCard` is expressed in the design's own
 939x536 units and scaled to the template's real pixels, so re-exporting the
 template at a different resolution needs no code change.
 

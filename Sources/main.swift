@@ -4,6 +4,12 @@ import Carbon.HIToolbox
 
 // MARK: - Settings
 
+/// Everything the user can change, and where it is stored.
+///
+/// The keys are part of the app's contract with its own past: renaming one
+/// silently resets that preference on every existing install, and `breaksTaken`
+/// in particular can never be recovered. Rename the Swift property, never the
+/// string.
 enum Settings {
     private static let store = UserDefaults.standard
 
@@ -19,23 +25,6 @@ enum Settings {
         set { store.set(newValue, forKey: "breakLength") }
     }
 
-    static let borderWidth: CGFloat = 12
-    /// Applies to the INNER edge of the border only. The outer edge follows the
-    /// display, whose bottom corners are square.
-    static let borderInnerRadius: CGFloat = 22
-    static let borderColor = NSColor(calibratedRed: 1.0, green: 0.47, blue: 0.06, alpha: 1.0)
-    /// Off-white, #FBFBF2. Pure white is harsh against the dark material.
-    static let ink = NSColor(srgbRed: 0xFB / 255, green: 0xFB / 255, blue: 0xF2 / 255, alpha: 1)
-    /// Near-black, #1E1E1C. The warm counterpart to `ink`; pure black is not
-    /// used anywhere the eye can see it.
-    static let night = NSColor(srgbRed: 0x1E / 255, green: 0x1E / 255, blue: 0x1C / 255, alpha: 1)
-    static let blinkPeriod: CFTimeInterval = 1.1
-
-    static let pillRadius: CGFloat = 16
-    static let pillWidth: CGFloat = 460
-    static let pillHeight: CGFloat = 60
-    static let pillBottomMargin: CGFloat = 15
-
     /// Stop counting down when the keyboard and mouse have been quiet this
     /// long. Zero means never stop.
     static var idleTimeout: TimeInterval {
@@ -44,19 +33,62 @@ enum Settings {
     }
 
     /// Breaks taken all the way through, ever.
-    static var completedSessions: Int {
+    static var breaksTaken: Int {
         get { store.integer(forKey: "completedSessions") }
         set { store.set(newValue, forKey: "completedSessions") }
     }
 
+    /// Offered in the menu, in seconds.
     static let intervalPresets = [1, 10, 15, 20, 25, 30, 45, 60, 120].map { $0 * 60 }
-    static let breakPresets = [20, 30, 60, 90, 120, 180, 300]
-    static let idlePresets = [0, 60, 300, 600, 900, 1800]
-    /// Seconds of continuous activity during a break before the bar says so.
-    static let nudgeAfter: TimeInterval = 1
-    /// Quiet seconds that clear the message again. Wider than `nudgeAfter` on
-    /// purpose: without hysteresis the title would flicker between keystrokes.
-    static let nudgeClear: TimeInterval = 5
+    static let breakLengthPresets = [20, 30, 60, 90, 120, 180, 300]
+    static let idleTimeoutPresets = [0, 60, 300, 600, 900, 1800]
+}
+
+// MARK: - Style
+
+/// Colours and geometry. Nothing here is persisted or user-facing.
+enum Style {
+    /// Orange, #FF8C0E.
+    static let borderColor = NSColor(calibratedRed: 1.0, green: 0.47, blue: 0.06, alpha: 1.0)
+    /// Off-white, #FBFBF2. Pure white is harsh against the dark material.
+    static let ink = NSColor(srgbRed: 0xFB / 255, green: 0xFB / 255, blue: 0xF2 / 255, alpha: 1)
+    /// Near-black, #1E1E1C. The warm counterpart to `ink`; pure black is not
+    /// used anywhere the eye can see it.
+    static let night = NSColor(srgbRed: 0x1E / 255, green: 0x1E / 255, blue: 0x1C / 255, alpha: 1)
+
+    static let borderWidth: CGFloat = 12
+    /// Applies to the INNER edge of the border only. The outer edge follows the
+    /// display, whose bottom corners are square.
+    static let borderInnerRadius: CGFloat = 22
+    static let blinkPeriod: CFTimeInterval = 1.1
+
+    static let pillRadius: CGFloat = 16
+    static let pillWidth: CGFloat = 460
+    static let pillHeight: CGFloat = 60
+    static let pillBottomMargin: CGFloat = 15
+}
+
+// MARK: - Formatting
+
+/// The two ways a number is written on screen, shared by the menu, the bar and
+/// the share card.
+enum Format {
+    /// 9999 stays 9999; 10000 becomes 10k. Keeps the menu bar narrow once the
+    /// count runs into five digits.
+    static func count(_ value: Int) -> String {
+        if value >= 1_000_000 { return "\(value / 1_000_000)M" }
+        if value >= 10_000 { return "\(value / 1_000)k" }
+        return "\(value)"
+    }
+
+    /// Durations as a person would say them: "2 min", "1 h", "1 min 30 s".
+    static func duration(_ duration: TimeInterval) -> String {
+        let total = Int(duration)
+        if total >= 3600 && total % 3600 == 0 { return "\(total / 3600) h" }
+        if total < 60 { return "\(total) s" }
+        if total % 60 == 0 { return "\(total / 60) min" }
+        return "\(total / 60) min \(total % 60) s"
+    }
 }
 
 // MARK: - Log
@@ -109,9 +141,12 @@ enum Activity {
 
 // MARK: - Shortcuts
 
-let keyEscape: UInt16 = 53
-let keySpace: UInt16 = 49
-let keyReturn: UInt16 = 36
+/// Virtual key codes, as `RegisterEventHotKey` expects them.
+private enum KeyCode {
+    static let escape: UInt16 = 53
+    static let space: UInt16 = 49
+    static let `return`: UInt16 = 36
+}
 
 /// The active shortcut pair.
 ///
@@ -139,23 +174,26 @@ enum Shortcut: String, CaseIterable {
         switch self {
         // ⌘space is Spotlight, so the command preset uses return instead.
         case .command: return Spec(name: "⌘ esc  /  ⌘ return", carbonModifiers: cmdKey,
-                                   goKey: keyReturn, skipLabel: "⌘esc", goLabel: "⌘↩")
+                                   goKey: KeyCode.return, skipLabel: "⌘esc", goLabel: "⌘↩")
         case .control: return Spec(name: "⌃ esc  /  ⌃ space", carbonModifiers: controlKey,
-                                   goKey: keySpace, skipLabel: "⌃esc", goLabel: "⌃space")
+                                   goKey: KeyCode.space, skipLabel: "⌃esc", goLabel: "⌃space")
         case .option:  return Spec(name: "⌥ esc  /  ⌥ space", carbonModifiers: optionKey,
-                                   goKey: keySpace, skipLabel: "⌥esc", goLabel: "⌥space")
+                                   goKey: KeyCode.space, skipLabel: "⌥esc", goLabel: "⌥space")
         case .bare:    return Spec(name: "esc  /  space  (no modifier)", carbonModifiers: 0,
-                                   goKey: keySpace, skipLabel: "esc", goLabel: "space")
+                                   goKey: KeyCode.space, skipLabel: "esc", goLabel: "space")
         }
     }
 
     var name: String { spec.name }
     /// Carbon-style modifier mask, as expected by RegisterEventHotKey.
     var carbonModifiers: UInt32 { UInt32(spec.carbonModifiers) }
-    var skipKey: UInt16 { keyEscape }
+    var skipKey: UInt16 { KeyCode.escape }
     var goKey: UInt16 { spec.goKey }
     var skipLabel: String { spec.skipLabel }
     var goLabel: String { spec.goLabel }
+
+    /// The preset's two hotkeys, paired with what they do.
+    var keys: [(UInt16, Action)] { [(skipKey, .skip), (goKey, .go)] }
 
     enum Action: UInt32 { case skip = 1, go = 2 }
 }
@@ -168,9 +206,14 @@ enum Shortcut: String, CaseIterable {
 /// because an ad-hoc signature changes identity each time.
 ///
 /// Shortcuts are registered only while an alert is on screen and removed right
-/// after, so they belong to other apps the rest of the time.
+/// after, so they belong to other apps the rest of the time. That window is
+/// also the whole conflict story: macOS hands the same combination to every app
+/// that asks for it, including ones the system itself uses, and
+/// `RegisterEventHotKey` reports no error when it does. Nothing can ask whether
+/// a combination is free, so the answer is to hold it for seconds rather than
+/// for the session, and to keep the bar clickable either way.
 final class GlobalShortcuts {
-    private var refs: [EventHotKeyRef?] = []
+    private var refs: [EventHotKeyRef] = []
     private var handler: EventHandlerRef?
     private var onAction: ((Shortcut.Action) -> Void)?
 
@@ -200,24 +243,28 @@ final class GlobalShortcuts {
     func enable(_ shortcut: Shortcut, onAction: @escaping (Shortcut.Action) -> Void) {
         disable()
         self.onAction = onAction
-        for (key, action) in [(shortcut.skipKey, Shortcut.Action.skip),
-                              (shortcut.goKey, Shortcut.Action.go)] {
-            var ref: EventHotKeyRef?
-            let id = EventHotKeyID(signature: GlobalShortcuts.signature, id: action.rawValue)
-            let status = RegisterEventHotKey(UInt32(key), shortcut.carbonModifiers, id,
-                                             GetApplicationEventTarget(), 0, &ref)
-            if status == noErr {
-                refs.append(ref)
-            } else {
-                Log.write("RegisterEventHotKey FAILED (key \(key), status \(status))")
-            }
+        for (key, action) in shortcut.keys {
+            guard let ref = GlobalShortcuts.register(key: key, shortcut: shortcut, action: action) else { continue }
+            refs.append(ref)
         }
         Log.write("shortcuts registered: \(shortcut.name) (\(refs.count)/2)")
     }
 
     func disable() {
-        refs.forEach { if let ref = $0 { UnregisterEventHotKey(ref) } }
+        refs.forEach { UnregisterEventHotKey($0) }
         refs.removeAll()
+    }
+
+    private static func register(key: UInt16, shortcut: Shortcut, action: Shortcut.Action) -> EventHotKeyRef? {
+        var ref: EventHotKeyRef?
+        let id = EventHotKeyID(signature: signature, id: action.rawValue)
+        let status = RegisterEventHotKey(UInt32(key), shortcut.carbonModifiers, id,
+                                         GetApplicationEventTarget(), 0, &ref)
+        guard status == noErr, let ref else {
+            Log.write("RegisterEventHotKey refused \(shortcut.name) (key \(key), status \(status))")
+            return nil
+        }
+        return ref
     }
 }
 
@@ -342,15 +389,15 @@ enum Updater {
     }
 }
 
-// MARK: - Streak card
+// MARK: - Share card
 
-/// The shareable card: `streak.jpg` from the bundle, with the break count
+/// The shareable card: `card.jpg` from the bundle, with the break count
 /// dropped into its empty top-right corner.
 ///
 /// Every number below is in the design's own 939x536 units and scaled to the
 /// template's real pixels, so re-exporting the template at another resolution
 /// changes nothing here.
-enum Streak {
+enum BreakCard {
     private static let design = NSSize(width: 939, height: 536)
     private static let fontSize: CGFloat = 150
     private static let opacity: CGFloat = 0.8
@@ -360,14 +407,17 @@ enum Streak {
     private static let baselineFromTop: CGFloat = 169
     private static let cornerRadius: CGFloat = 35.5
 
-    /// Jersey 15 is bundled, not assumed: it ships on no Mac.
-    private static let fontRegistered: Bool = {
+    /// Jersey 15 is bundled, not assumed: it ships on no Mac. Registering it
+    /// is a one-off, hence the lazily evaluated constant.
+    private static let fontIsRegistered: Bool = {
         guard let url = Bundle.main.url(forResource: "Jersey15-Regular", withExtension: "ttf") else { return false }
         return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
     }()
 
-    static func render(count: Int) -> URL? {
-        guard let url = Bundle.main.url(forResource: "streak", withExtension: "jpg"),
+    /// Writes the card to a temporary file and returns it, or nil if the
+    /// template or the destination is unreadable.
+    static func render(breaks: Int) -> URL? {
+        guard let url = Bundle.main.url(forResource: "card", withExtension: "jpg"),
               let data = try? Data(contentsOf: url),
               let template = NSBitmapImageRep(data: data) else { return nil }
 
@@ -393,12 +443,12 @@ enum Streak {
         NSBezierPath(roundedRect: frame, xRadius: radius, yRadius: radius).addClip()
         template.draw(in: frame)
 
-        _ = fontRegistered
+        _ = fontIsRegistered
         let font = NSFont(name: "Jersey 15", size: fontSize * scale)
             ?? .monospacedDigitSystemFont(ofSize: fontSize * scale, weight: .regular)
-        let text = NSAttributedString(string: Bar.compact(count), attributes: [
+        let text = NSAttributedString(string: Format.count(breaks), attributes: [
             .font: font,
-            .foregroundColor: Settings.night.withAlphaComponent(opacity),
+            .foregroundColor: Style.night.withAlphaComponent(opacity),
         ])
         // The two axes do not share an origin: draw(at:) takes the box corner,
         // so x offsets against the ink (size() would add the font's side
@@ -413,7 +463,7 @@ enum Streak {
 
         guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
         let out = FileManager.default.temporaryDirectory
-            .appendingPathComponent("Eyesaver \(count) break\(count == 1 ? "" : "s").png")
+            .appendingPathComponent("Eyesaver \(breaks) break\(breaks == 1 ? "" : "s").png")
         do { try png.write(to: out) } catch { return nil }
         return out
     }
@@ -433,10 +483,10 @@ private final class BorderView: NSView {
         // A filled ring, not a stroke. A stroke is centred on its path, so both
         // edges share one radius, and rounding the outer edge leaves a gap in
         // the square bottom corners of the display.
-        ring.fillColor = Settings.borderColor.cgColor
+        ring.fillColor = Style.borderColor.cgColor
         ring.fillRule = .evenOdd
         ring.strokeColor = nil
-        ring.shadowColor = Settings.borderColor.cgColor
+        ring.shadowColor = Style.borderColor.cgColor
         ring.shadowOpacity = 0.7
         ring.shadowRadius = 10
         ring.shadowOffset = .zero
@@ -447,12 +497,12 @@ private final class BorderView: NSView {
 
     override func layout() {
         super.layout()
-        let w = Settings.borderWidth
+        let w = Style.borderWidth
         let path = CGMutablePath()
         path.addRect(bounds)                                     // outer: square
         path.addPath(CGPath(roundedRect: bounds.insetBy(dx: w, dy: w),
-                            cornerWidth: Settings.borderInnerRadius,
-                            cornerHeight: Settings.borderInnerRadius,
+                            cornerWidth: Style.borderInnerRadius,
+                            cornerHeight: Style.borderInnerRadius,
                             transform: nil))                     // inner: rounded
         ring.frame = bounds
         ring.path = path
@@ -462,7 +512,7 @@ private final class BorderView: NSView {
         let pulse = CABasicAnimation(keyPath: "opacity")
         pulse.fromValue = 1.0
         pulse.toValue = 0.12
-        pulse.duration = Settings.blinkPeriod
+        pulse.duration = Style.blinkPeriod
         pulse.autoreverses = true
         pulse.repeatCount = .infinity
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -523,10 +573,10 @@ final class PillBackground: NSVisualEffectView {
         state = .active
         wantsLayer = true
         outline.fillColor = nil
-        outline.strokeColor = Settings.ink.withAlphaComponent(0.14).cgColor
+        outline.strokeColor = Style.ink.withAlphaComponent(0.14).cgColor
         outline.lineWidth = 1
         layer?.addSublayer(outline)
-        maskImage = PillBackground.mask(radius: Settings.pillRadius)
+        maskImage = PillBackground.mask(radius: Style.pillRadius)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -535,8 +585,8 @@ final class PillBackground: NSVisualEffectView {
         super.layout()
         outline.frame = bounds
         outline.path = CGPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
-                              cornerWidth: Settings.pillRadius,
-                              cornerHeight: Settings.pillRadius,
+                              cornerWidth: Style.pillRadius,
+                              cornerHeight: Style.pillRadius,
                               transform: nil)
     }
 
@@ -588,7 +638,7 @@ final class PillButton: NSButton {
     }
 
     private func makeTitle() -> NSAttributedString {
-        let tint: NSColor = prominent ? Settings.night : Settings.ink.withAlphaComponent(0.92)
+        let tint: NSColor = prominent ? Style.night : Style.ink.withAlphaComponent(0.92)
         let title = NSMutableAttributedString(string: label, attributes: [
             .font: NSFont.systemFont(ofSize: 13, weight: .medium),
             .foregroundColor: tint,
@@ -611,8 +661,8 @@ final class PillButton: NSButton {
 
     private func paint() {
         let fill: NSColor = prominent
-            ? (hovered ? Settings.ink : Settings.ink.withAlphaComponent(0.88))
-            : Settings.ink.withAlphaComponent(hovered ? 0.16 : 0.09)
+            ? (hovered ? Style.ink : Style.ink.withAlphaComponent(0.88))
+            : Style.ink.withAlphaComponent(hovered ? 0.16 : 0.09)
         layer?.backgroundColor = fill.cgColor
     }
 
@@ -640,17 +690,22 @@ protocol BarDelegate: AnyObject {
 final class Bar {
     weak var delegate: BarDelegate?
 
-    private var panel: NSPanel?
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "")
     private let subtitle = NSTextField(labelWithString: "")
-    private var skipButton: PillButton!
-    private var goButton: PillButton!
+
+    // Built on first use rather than at startup: an app that spends most of its
+    // life waiting has no reason to hold a window it has never shown.
+    private lazy var skipButton = PillButton(label: "Skip", shortcut: Shortcut.current.skipLabel,
+                                             prominent: false, target: self, action: #selector(skip))
+    private lazy var goButton = PillButton(label: "Go", shortcut: Shortcut.current.goLabel,
+                                           prominent: true, target: self, action: #selector(go))
+    private lazy var panel: NSPanel = build()
 
     private(set) var visible = false
 
     private func build() -> NSPanel {
-        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: Settings.pillHeight),
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Style.pillWidth, height: Style.pillHeight),
                             styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -668,13 +723,13 @@ final class Bar {
 
         icon.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
-        icon.contentTintColor = Settings.ink.withAlphaComponent(0.75)
+        icon.contentTintColor = Style.ink.withAlphaComponent(0.75)
 
         title.wantsLayer = true
         title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = Settings.ink.withAlphaComponent(0.95)
+        title.textColor = Style.ink.withAlphaComponent(0.95)
         subtitle.font = .systemFont(ofSize: 11, weight: .regular)
-        subtitle.textColor = Settings.ink.withAlphaComponent(0.55)
+        subtitle.textColor = Style.ink.withAlphaComponent(0.55)
 
         for field in [title, subtitle] {
             field.lineBreakMode = .byTruncatingTail
@@ -684,12 +739,6 @@ final class Bar {
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 1
-
-        let shortcut = Shortcut.current
-        skipButton = PillButton(label: "Skip", shortcut: shortcut.skipLabel, prominent: false,
-                                target: self, action: #selector(skip))
-        goButton = PillButton(label: "Go", shortcut: shortcut.goLabel, prominent: true,
-                              target: self, action: #selector(go))
 
         let buttons = NSStackView(views: [skipButton, goButton])
         buttons.orientation = .horizontal
@@ -724,25 +773,22 @@ final class Bar {
     // MARK: Presentation
 
     func showPrompt() {
-        let panel = self.panel ?? build()
-        self.panel = panel
         let shortcut = Shortcut.current
         skipButton.update(label: "Skip", shortcut: shortcut.skipLabel)
         goButton.update(shortcut: shortcut.goLabel)
         goButton.isHidden = false
         title.stringValue = "Time to look away"
-        subtitle.stringValue = "Rest your eyes for \(Bar.shortFormat(Settings.breakLength))"
-        present(panel)
+        subtitle.stringValue = "Rest your eyes for \(Format.duration(Settings.breakLength))"
+        present()
     }
 
     func switchToCountdown() {
-        guard let panel else { return }
         // Same button, same name: dismissing the countdown is still a skip.
         skipButton.update(label: "Skip", shortcut: Shortcut.current.skipLabel)
         goButton.isHidden = true
         setRestingTitle(nudging: false)
         updateCountdown(Settings.breakLength)
-        resize(panel, animated: true)
+        reposition(animated: true)
     }
 
     /// Calls out a break spent typing, and goes quiet again once the keyboard
@@ -764,12 +810,12 @@ final class Bar {
         subtitle.stringValue = String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
-    private func present(_ panel: NSPanel) {
-        resize(panel, animated: false)
+    private func present() {
+        reposition(animated: false)
         guard !visible else { return }
         visible = true
         panel.alphaValue = 0
-        let destination = targetFrame(for: panel)
+        let destination = targetFrame()
         panel.setFrame(destination.offsetBy(dx: 0, dy: -12), display: false)
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
@@ -781,18 +827,18 @@ final class Bar {
     }
 
     func hide() {
-        guard visible, let panel else { return }
+        guard visible else { return }
         visible = false
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
             panel.animator().alphaValue = 0
-        }, completionHandler: { panel.orderOut(nil) })
+        }, completionHandler: { [self] in panel.orderOut(nil) })
     }
 
-    /// Recomputes width and position: the pill hugs its content.
-    private func resize(_ panel: NSPanel, animated: Bool) {
+    /// Puts the pill back where it belongs, following the main display.
+    private func reposition(animated: Bool) {
         panel.contentView?.layoutSubtreeIfNeeded()
-        let destination = targetFrame(for: panel)
+        let destination = targetFrame()
         if animated && visible {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.25
@@ -804,32 +850,15 @@ final class Bar {
         }
     }
 
-    private func targetFrame(for panel: NSPanel) -> NSRect {
+    private func targetFrame() -> NSRect {
         // Fixed, never derived from the content: the title changes length
         // during a break, and a pill that resized would drag the button with it.
-        let width = Settings.pillWidth
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let area = screen.visibleFrame
-        return NSRect(x: (area.midX - width / 2).rounded(),
-                      y: area.minY + Settings.pillBottomMargin,
-                      width: width,
-                      height: Settings.pillHeight)
-    }
-
-    /// 9999 stays 9999; 10000 becomes 10k. Keeps the menu bar narrow once the
-    /// count runs into five digits.
-    static func compact(_ count: Int) -> String {
-        if count >= 1_000_000 { return "\(count / 1_000_000)M" }
-        if count >= 10_000 { return "\(count / 1_000)k" }
-        return "\(count)"
-    }
-
-    static func shortFormat(_ duration: TimeInterval) -> String {
-        let total = Int(duration)
-        if total >= 3600 && total % 3600 == 0 { return "\(total / 3600) h" }
-        if total < 60 { return "\(total) s" }
-        if total % 60 == 0 { return "\(total / 60) min" }
-        return "\(total / 60) min \(total % 60) s"
+        return NSRect(x: (area.midX - Style.pillWidth / 2).rounded(),
+                      y: area.minY + Style.pillBottomMargin,
+                      width: Style.pillWidth,
+                      height: Style.pillHeight)
     }
 }
 
@@ -846,22 +875,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     /// or the Mac is asleep.
     private var remaining = Settings.interval
     private var lastBeat = Date()
+    private var heartbeatTimer: Timer?
+    private var paused = false
+
+    /// When the current break is due to end, and the timer that credits it.
     private var breakEnd: Date?
+    private var breakTimer: Timer?
+
+    /// Nudge state: see `shouldNudge()`.
     private var nudgeArmed = false
     private var activeSince: Date?
-    private var breakTimer: Timer?
-    private var tick: Timer?
-    private var paused = false
-    private var testSignal: DispatchSourceSignal?
-    private var cardSignal: DispatchSourceSignal?
-    private var lastTitle = ""
+
+    /// Seconds of continuous activity during a break before the bar says so.
+    private static let nudgeAfter: TimeInterval = 1
+    /// Quiet seconds that clear the message again. Wider than `nudgeAfter` on
+    /// purpose: without hysteresis the title would flicker between keystrokes.
+    private static let nudgeClear: TimeInterval = 5
+
+    private var lastStatusTitle = ""
+    /// The share sheet is torn down as soon as its picker is released.
     private var sharePicker: NSSharingServicePicker?
     private var lastCard: URL?
+    /// Test hooks, kept alive for the lifetime of the app. See `installTestHooks()`.
+    private var signalSources: [DispatchSourceSignal] = []
 
     private let pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
     private let autoUpdateItem = NSMenuItem(title: "Check for Updates Automatically", action: #selector(toggleAutoUpdate), keyEquivalent: "")
-    private let streakItem = NSMenuItem(title: "", action: #selector(shareStreak), keyEquivalent: "")
+    private let shareCardItem = NSMenuItem(title: "", action: #selector(shareBreakCard), keyEquivalent: "")
 
     private enum Phase { case idle, prompt, resting }
     private var phase: Phase = .idle
@@ -872,27 +913,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         buildMenu()
         resetInterval()
 
-        tick = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             self?.heartbeat()
         }
-
-        // `kill -USR1 <pid>` triggers a break, `-USR2` renders the streak card.
-        // Both are test hooks: there is no other way to reach these without
-        // clicking through the menu.
-        signal(SIGUSR1, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
-        source.setEventHandler { [weak self] in self?.trigger() }
-        source.resume()
-        testSignal = source
-
-        signal(SIGUSR2, SIG_IGN)
-        let cardSource = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
-        cardSource.setEventHandler {
-            let url = Streak.render(count: max(1, Settings.completedSessions))
-            Log.write("streak card: \(url?.path ?? "render failed")")
-        }
-        cardSource.resume()
-        cardSignal = cardSource
+        installTestHooks()
 
         // Let launch settle before touching the network.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { Updater.check(manual: false) }
@@ -902,6 +926,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         ) { [weak self] _ in
             guard let self, self.borders.visible else { return }
             self.borders.hide(); self.borders.show()
+        }
+    }
+
+    /// `kill -USR1 <pid>` triggers a break, `-USR2` renders the share card.
+    /// There is no other way to reach either without clicking through the menu,
+    /// and waiting twenty minutes for a break makes for a poor test loop.
+    private func installTestHooks() {
+        let hooks: [(Int32, () -> Void)] = [
+            (SIGUSR1, { [weak self] in self?.startPrompt() }),
+            (SIGUSR2, {
+                let url = BreakCard.render(breaks: max(1, Settings.breaksTaken))
+                Log.write("share card: \(url?.path ?? "render failed")")
+            }),
+        ]
+        for (number, handler) in hooks {
+            signal(number, SIG_IGN)   // the default action is to terminate
+            let source = DispatchSource.makeSignalSource(signal: number, queue: .main)
+            source.setEventHandler(handler: handler)
+            source.resume()
+            signalSources.append(source)
         }
     }
 
@@ -919,15 +963,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
         let menu = NSMenu()
         menu.autoenablesItems = false
-        menu.addItem(item("Take a Break Now", #selector(takeBreakNow)))
-        menu.addItem(item("Reset Timer", #selector(resetTimer)))
+        menu.addItem(menuItem("Take a Break Now", #selector(takeBreakNow)))
+        menu.addItem(menuItem("Reset Timer", #selector(resetTimer)))
         menu.addItem(pauseItem)
         menu.addItem(.separator())
-        menu.addItem(choiceMenu("Break Every", choices: durations(Settings.intervalPresets),
+        menu.addItem(choiceMenu("Break Every", choices: durationChoices(Settings.intervalPresets),
                                 selected: Int(Settings.interval), action: #selector(pickInterval(_:))))
-        menu.addItem(choiceMenu("Break Length", choices: durations(Settings.breakPresets),
+        menu.addItem(choiceMenu("Break Length", choices: durationChoices(Settings.breakLengthPresets),
                                 selected: Int(Settings.breakLength), action: #selector(pickBreakLength(_:))))
-        menu.addItem(choiceMenu("Pause When Idle", choices: idleChoices(),
+        menu.addItem(choiceMenu("Pause When Idle", choices: idleTimeoutChoices(),
                                 selected: Int(Settings.idleTimeout), action: #selector(pickIdle(_:))))
         menu.addItem(choiceMenu("Shortcuts",
                                 choices: Shortcut.allCases.enumerated().map { ($1.name, $0) },
@@ -935,12 +979,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
                                 action: #selector(pickShortcut(_:))))
         menu.addItem(loginItem)
         menu.addItem(.separator())
-        menu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
+        menu.addItem(menuItem("Check for Updates…", #selector(checkForUpdates)))
         menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
-        menu.addItem(streakItem)
-        menu.addItem(item("Share Eyesaver", #selector(share)))
-        menu.addItem(item("Star on GitHub", #selector(openRepository)))
+        menu.addItem(shareCardItem)
+        menu.addItem(menuItem("Share Eyesaver", #selector(shareApp)))
+        menu.addItem(menuItem("Star on GitHub", #selector(openRepository)))
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Eyesaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.forEach { if $0.action != nil { $0.target = self } }
@@ -950,7 +994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         refreshMenuState()
     }
 
-    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+    private func menuItem(_ title: String, _ action: Selector) -> NSMenuItem {
         NSMenuItem(title: title, action: action, keyEquivalent: "")
     }
 
@@ -971,29 +1015,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         return parent
     }
 
-    private func durations(_ values: [Int]) -> [(String, Int)] {
-        values.map { (Bar.shortFormat(TimeInterval($0)), $0) }
+    private func durationChoices(_ values: [Int]) -> [(String, Int)] {
+        values.map { (Format.duration(TimeInterval($0)), $0) }
     }
 
-    private func idleChoices() -> [(String, Int)] {
-        Settings.idlePresets.map { ($0 == 0 ? "Never" : "After \(Bar.shortFormat(TimeInterval($0)))", $0) }
+    private func idleTimeoutChoices() -> [(String, Int)] {
+        Settings.idleTimeoutPresets.map { ($0 == 0 ? "Never" : "After \(Format.duration(TimeInterval($0)))", $0) }
     }
 
-    @objc private func pickIdle(_ sender: NSMenuItem) {
-        Settings.idleTimeout = TimeInterval(sender.tag)
-        select(sender)
+    /// Ticks the entry matching `sender` and clears its siblings.
+    private func select(_ sender: NSMenuItem) {
+        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
     }
 
     private func refreshMenuState() {
         pauseItem.title = paused ? "Resume" : "Pause"
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         autoUpdateItem.state = Updater.automatic ? .on : .off
-        let sessions = Settings.completedSessions
-        streakItem.title = sessions == 0
+        let breaks = Settings.breaksTaken
+        shareCardItem.title = breaks == 0
             ? "No Breaks Taken Yet"
-            : "Share my \(sessions) Break\(sessions == 1 ? "" : "s")"
-        streakItem.isEnabled = sessions > 0
+            : "Share my \(breaks) Break\(breaks == 1 ? "" : "s")"
+        shareCardItem.isEnabled = breaks > 0
     }
+
+    // MARK: Menu actions
 
     @objc private func pickInterval(_ sender: NSMenuItem) {
         Settings.interval = TimeInterval(sender.tag)
@@ -1006,15 +1052,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         select(sender)
     }
 
+    @objc private func pickIdle(_ sender: NSMenuItem) {
+        Settings.idleTimeout = TimeInterval(sender.tag)
+        select(sender)
+    }
+
     @objc private func pickShortcut(_ sender: NSMenuItem) {
         let shortcut = Shortcut.allCases[sender.tag]
         Shortcut.current = shortcut
         select(sender)
         Log.write("shortcuts switched to \(shortcut.name)")
-    }
-
-    private func select(_ sender: NSMenuItem) {
-        sender.menu?.items.forEach { $0.state = ($0 === sender) ? .on : .off }
     }
 
     @objc private func toggleOpenAtLogin() {
@@ -1032,11 +1079,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
     @objc private func openRepository() { NSWorkspace.shared.open(Updater.homepage) }
 
-    /// Renders the session count onto a card and offers it to the share sheet.
-    @objc private func shareStreak() {
-        guard Settings.completedSessions > 0,
+    /// Renders the break count onto a card and offers it to the share sheet.
+    @objc private func shareBreakCard() {
+        guard Settings.breaksTaken > 0,
               let anchor = statusItem.button,
-              let card = Streak.render(count: Settings.completedSessions) else { return }
+              let card = BreakCard.render(breaks: Settings.breaksTaken) else { return }
         lastCard = card
         // Messages and Mail drop a file URL that points into the temporary
         // directory: nothing is attached, and nothing is reported. An NSImage
@@ -1053,7 +1100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
     /// Copies the card to ~/Downloads and reveals it. The share sheet has no
     /// save-to-disk entry of its own, so one is added to it.
-    private func saveCard() {
+    private func downloadCard() {
         guard let card = lastCard else { return }
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
         var destination = downloads.appendingPathComponent(card.lastPathComponent)
@@ -1075,7 +1122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     /// The macOS share sheet, anchored on the menu bar item. Deferred: the
     /// picker cannot be presented while the menu it was invoked from is still
     /// tearing down.
-    @objc private func share() {
+    @objc private func shareApp() {
         guard let anchor = statusItem.button else { return }
         DispatchQueue.main.async {
             let picker = NSSharingServicePicker(items: [Updater.homepage])
@@ -1088,12 +1135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         refreshMenuState()
     }
 
-    @objc private func takeBreakNow() { trigger() }
-    @objc private func resetTimer() { finish(); resetInterval() }
+    @objc private func takeBreakNow() { startPrompt() }
+    @objc private func resetTimer() { dismiss(); resetInterval() }
 
     @objc private func togglePause() {
         paused.toggle()
-        if paused { finish() } else { resetInterval() }
+        if paused { dismiss() } else { resetInterval() }
         refreshMenuState()
     }
 
@@ -1104,7 +1151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         lastBeat = Date()
     }
 
-    private func trigger() {
+    /// Raises the border and the bar, and claims the shortcuts for as long as
+    /// they are on screen.
+    private func startPrompt() {
         guard phase == .idle else { return }
         phase = .prompt
         borders.show()
@@ -1123,12 +1172,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     /// Skip: everything goes away and the next delay restarts from now.
-    func barDidSkip() { finish(); resetInterval() }
+    func barDidSkip() { dismiss(); resetInterval() }
 
     /// Go: borders go away, the bar becomes a countdown. The next delay
     /// restarts from now as well.
     func barDidGo() {
-        guard phase == .prompt else { finish(); resetInterval(); return }
+        guard phase == .prompt else { dismiss(); resetInterval(); return }
         phase = .resting
         borders.hide()
         bar.switchToCountdown()
@@ -1137,16 +1186,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         breakEnd = Date().addingTimeInterval(Settings.breakLength)
         breakTimer?.invalidate()
         breakTimer = Timer.scheduledTimer(withTimeInterval: Settings.breakLength, repeats: false) { [weak self] _ in
-            // Only a break taken all the way through counts. Pressing Done
-            // early does not.
-            Settings.completedSessions += 1
-            Log.write("session completed (\(Settings.completedSessions) total)")
-            self?.finish()
+            // Only a break taken all the way through counts. Skipping out of
+            // the countdown early does not.
+            Settings.breaksTaken += 1
+            Log.write("break completed (\(Settings.breaksTaken) total)")
+            self?.dismiss()
         }
         resetInterval()
     }
 
-    private func finish() {
+    /// Back to waiting: no border, no bar, no shortcuts held.
+    private func dismiss() {
         phase = .idle
         shortcuts.disable()
         breakTimer?.invalidate(); breakTimer = nil
@@ -1156,25 +1206,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     /// True once the user has been back at the keyboard for a moment.
-    ///
-    /// Arming on the first quiet second rather than on a fixed delay is what
-    /// keeps the Go keypress itself from counting: Go is an input, and any
-    /// grace period long enough to cover it would be arbitrary.
     private func shouldNudge() -> Bool {
-        let idle = Activity.idleSeconds
+        let quietFor = Activity.idleSeconds
+
+        // Arm on the first quiet second rather than after a fixed delay: Go is
+        // itself a keypress, and any grace period wide enough to cover it would
+        // be arbitrary.
         guard nudgeArmed else {
-            if idle >= Settings.nudgeAfter { nudgeArmed = true }
+            nudgeArmed = quietFor >= Self.nudgeAfter
             return false
         }
-        if idle >= Settings.nudgeClear {
+        // Still for long enough: the message can go.
+        if quietFor >= Self.nudgeClear {
             activeSince = nil
             return false
         }
-        if idle < Settings.nudgeAfter {
-            if activeSince == nil { activeSince = Date() }
+        // Activity just resumed: start counting how long it lasts.
+        if quietFor < Self.nudgeAfter, activeSince == nil {
+            activeSince = Date()
         }
         guard let since = activeSince else { return false }
-        return Date().timeIntervalSince(since) >= Settings.nudgeAfter
+        return Date().timeIntervalSince(since) >= Self.nudgeAfter
     }
 
     private func heartbeat() {
@@ -1191,7 +1243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         let away = Activity.isIdle
         if phase == .idle && !paused && !away {
             remaining -= elapsed
-            if remaining <= 0 { trigger() }
+            if remaining <= 0 { startPrompt() }
         }
 
         let countdown: String
@@ -1207,8 +1259,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             countdown = "\(max(1, Int((remaining / 60).rounded(.up))))"
         }
         let title = " \(countdown)"
-        if title != lastTitle {
-            lastTitle = title
+        if title != lastStatusTitle {
+            lastStatusTitle = title
             statusItem.button?.title = title
         }
     }
@@ -1224,7 +1276,7 @@ extension AppDelegate: NSSharingServicePickerDelegate {
                               proposedSharingServices proposed: [NSSharingService]) -> [NSSharingService] {
         let icon = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) ?? NSImage()
         let save = NSSharingService(title: "Download", image: icon, alternateImage: nil) { [weak self] in
-            self?.saveCard()
+            self?.downloadCard()
         }
         return [save] + proposed
     }

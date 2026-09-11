@@ -35,16 +35,21 @@ need to go further.
 | To change | Edit |
 |---|---|
 | Default interval, default break length | `Settings.interval`, `Settings.breakLength` |
-| The lists in the menu | `Settings.intervalPresets`, `Settings.breakPresets` |
-| Border thickness, corner radius, blink speed | `Settings.borderWidth`, `borderInnerRadius`, `blinkPeriod` |
-| Colours | `Settings.borderColor`, `Settings.ink` |
-| Bar size and position | `Settings.pillWidth`, `pillHeight`, `pillRadius`, `pillBottomMargin` |
+| The lists in the menu | `Settings.intervalPresets`, `Settings.breakLengthPresets`, `Settings.idleTimeoutPresets` |
+| Border thickness, corner radius, blink speed | `Style.borderWidth`, `borderInnerRadius`, `blinkPeriod` |
+| Colours | `Style.borderColor`, `Style.ink`, `Style.night` |
+| Bar size and position | `Style.pillWidth`, `pillHeight`, `pillRadius`, `pillBottomMargin` |
 | The words in the bar | `Bar.showPrompt()` and `Bar.switchToCountdown()` |
 | Shortcut presets | `Shortcut.spec`, one `switch`, one case per preset |
 | Menu contents | `AppDelegate.buildMenu()` |
-| Idle threshold presets | `Settings.idlePresets` |
-| The share card | `Resources/streak.png`, plus the constants at the top of `Streak` |
-| What a break does | `AppDelegate.trigger()`, `barDidSkip()`, `barDidGo()`, `finish()` |
+| The share card | `Resources/card.jpg`, plus the constants at the top of `BreakCard` |
+| What a break does | `AppDelegate.startPrompt()`, `barDidSkip()`, `barDidGo()`, `dismiss()` |
+
+Preferences live in `Settings`, colours and geometry in `Style`, and the two
+number formats in `Format`. Nothing in `Style` is persisted; everything in
+`Settings` is, under the key spelled in its getter. Rename the Swift property
+freely, never the key: that silently resets the preference on every install, and
+`breaksTaken` can never be recovered.
 
 The cycle is three phases (`idle`, `prompt`, `resting`) and four methods. If you
 are adding behaviour, it almost certainly belongs in one of those four.
@@ -62,7 +67,11 @@ Each of these cost a debugging session. Details in [SPECS.md](SPECS.md).
   leaves a gap in the square bottom corners of the display. It is a filled
   even-odd ring on purpose.
 - **Do not leave hotkeys registered outside an alert.** They are system-wide;
-  you would confiscate the combination from every other app.
+  you would confiscate the combination from every other app. This is also the
+  only protection there is: `RegisterEventHotKey` accepts a combination another
+  app already holds, and ⌘space and ⌘tab too, without ever returning an error.
+  Nothing can test whether a shortcut is free, so do not add a check that
+  pretends to.
 - **Do not consume a bare `space`.** Someone is mid-sentence when the break
   fires. This is why the default preset uses a modifier.
 - **`build.sh` starts with `rm -rf build`.** Do not leave anything in there.
@@ -74,7 +83,7 @@ Each of these cost a debugging session. Details in [SPECS.md](SPECS.md).
 ```sh
 ./build.sh --install     # builds, installs to /Applications, launches
 kill -USR1 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # trigger a break now
-kill -USR2 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # render the streak card
+kill -USR2 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # render the share card
 tail -f ~/Library/Logs/eyesaver.log
 ```
 

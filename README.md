@@ -48,7 +48,12 @@ way:
 That is deliberate. The obvious way to catch a global shortcut is `CGEventTap`,
 which needs both, and loses the grant on every rebuild, since macOS identifies
 an authorised app by its code signature. `RegisterEventHotKey` does the same job
-with no permission at all and takes priority over other apps.
+with no permission at all.
+
+The shortcuts are claimed only while the bar is on screen, and released as soon
+as you answer it. macOS lets several apps register the same combination without
+telling any of them, so if another app happens to want yours during those few
+seconds, pick a different preset from the menu. Skip and Go are buttons too.
 
 ## Settings
 

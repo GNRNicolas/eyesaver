@@ -30,7 +30,7 @@ if [ ! -f "Resources/$NAME.icns" ]; then
 fi
 cp "Resources/$NAME.icns" "$APP/Contents/Resources/"
 # Share-card template, and the pixel font its number is set in.
-cp Resources/streak.jpg Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
+cp Resources/card.jpg Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
 
 # --- Binary -----------------------------------------------------------------
 swiftc -O -target arm64-apple-macos13.0 -module-cache-path "$CACHE" \
@@ -63,6 +63,13 @@ codesign --force --sign - --identifier "$ID" "$APP"
 
 # --- Install ----------------------------------------------------------------
 if [ "${1:-}" = "--install" ]; then
+  # Replacing the bundle under a running copy leaves that copy on the old code,
+  # so the install looks like it did nothing at all.
+  if pkill -f "/Applications/$NAME.app/Contents/MacOS/$NAME" 2>/dev/null; then
+    # LaunchServices answers -609 to an `open` that follows the kill too
+    # closely, and nothing starts.
+    sleep 2
+  fi
   rm -rf "/Applications/$NAME.app"
   cp -R "$APP" "/Applications/"
   open "/Applications/$NAME.app"
