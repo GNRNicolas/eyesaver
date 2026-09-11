@@ -53,7 +53,10 @@ enum Settings {
     static let breakPresets = [20, 30, 60, 90, 120, 180, 300]
     static let idlePresets = [0, 60, 300, 600, 900, 1800]
     /// Quiet seconds needed during a break before the bar stops nudging.
-    static let nudgeAfter: TimeInterval = 10
+    static let nudgeAfter: TimeInterval = 5
+    /// Grace at the start of a break: pressing Go is itself an input, so
+    /// nudging straight away would always be wrong.
+    static let nudgeGrace: TimeInterval = 10
 }
 
 // MARK: - Log
@@ -676,17 +679,11 @@ final class Bar {
         for field in [title, subtitle] {
             field.lineBreakMode = .byTruncatingTail
             field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         }
         let labels = NSStackView(views: [title, subtitle])
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 1
-        // The slack of the fixed width lands here, so neither the icon on the
-        // left nor the button on the right ever moves.
-        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        icon.setContentHuggingPriority(.required, for: .horizontal)
 
         let shortcut = Shortcut.current
         skipButton = PillButton(label: "Skip", shortcut: shortcut.skipLabel, prominent: false,
@@ -697,21 +694,24 @@ final class Bar {
         let buttons = NSStackView(views: [skipButton, goButton])
         buttons.orientation = .horizontal
         buttons.spacing = 8
-        buttons.setContentHuggingPriority(.required, for: .horizontal)
-        buttons.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        let row = NSStackView(views: [icon, labels, buttons])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 12
-        row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 14)
-        row.translatesAutoresizingMaskIntoConstraints = false
-
-        background.addSubview(row)
+        // Explicit constraints rather than one outer stack: with nested stacks
+        // the slack of a fixed width settles wherever it likes, and the buttons
+        // drift away from the right edge. Pinning both ends leaves no doubt.
+        for view in [icon, labels, buttons] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            background.addSubview(view)
+        }
         NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            row.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+            icon.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 18),
+            icon.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+
+            labels.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12),
+            labels.centerYAnchor.constraint(equalTo: background.centerYAnchor),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -12),
+
+            buttons.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -14),
+            buttons.centerYAnchor.constraint(equalTo: background.centerYAnchor),
         ])
 
         panel.contentView = background
@@ -847,6 +847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private var remaining = Settings.interval
     private var lastBeat = Date()
     private var breakEnd: Date?
+    private var restStarted: Date?
     private var breakTimer: Timer?
     private var tick: Timer?
     private var paused = false
@@ -860,7 +861,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
     private let autoUpdateItem = NSMenuItem(title: "Check for Updates Automatically", action: #selector(toggleAutoUpdate), keyEquivalent: "")
     private let streakItem = NSMenuItem(title: "", action: #selector(shareStreak), keyEquivalent: "")
-    private let downloadItem = NSMenuItem(title: "Download", action: #selector(downloadCard), keyEquivalent: "")
 
     private enum Phase { case idle, prompt, resting }
     private var phase: Phase = .idle
@@ -938,7 +938,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
         menu.addItem(streakItem)
-        menu.addItem(downloadItem)
         menu.addItem(.separator())
         menu.addItem(item("Star on GitHub", #selector(openRepository)))
         menu.addItem(item("Share Eyesaver", #selector(share)))
@@ -994,7 +993,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             ? "No Breaks Taken Yet"
             : "Share my \(sessions) Break\(sessions == 1 ? "" : "s")"
         streakItem.isEnabled = sessions > 0
-        downloadItem.isEnabled = sessions > 0
     }
 
     @objc private func pickInterval(_ sender: NSMenuItem) {
@@ -1046,12 +1044,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             self.sharePicker = picker
             picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
         }
-    }
-
-    @objc private func downloadCard() {
-        guard Settings.completedSessions > 0 else { return }
-        lastCard = Streak.render(count: Settings.completedSessions)
-        saveCard()
     }
 
     /// Copies the card to ~/Downloads and reveals it. The share sheet has no
@@ -1133,6 +1125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         phase = .resting
         borders.hide()
         bar.switchToCountdown()
+        restStarted = Date()
         breakEnd = Date().addingTimeInterval(Settings.breakLength)
         breakTimer?.invalidate()
         breakTimer = Timer.scheduledTimer(withTimeInterval: Settings.breakLength, repeats: false) { [weak self] _ in
@@ -1150,16 +1143,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         shortcuts.disable()
         breakTimer?.invalidate(); breakTimer = nil
         breakEnd = nil
+        restStarted = nil
         borders.hide()
         bar.hide()
     }
 
     private func heartbeat() {
-        if phase == .resting, let end = breakEnd {
+        if phase == .resting, let end = breakEnd, let started = restStarted {
             bar.updateCountdown(end.timeIntervalSinceNow)
-            // Any input during a break means the eyes are still on the screen.
-            // It takes ten quiet seconds to earn the message back.
-            bar.setRestingTitle(nudging: Activity.idleSeconds < Settings.nudgeAfter)
+            // Input during a break means the eyes are still on the screen, but
+            // only once the break has had time to settle: pressing Go is an
+            // input too.
+            let settled = Date().timeIntervalSince(started) >= Settings.nudgeGrace
+            bar.setRestingTitle(nudging: settled && Activity.idleSeconds < Settings.nudgeAfter)
         }
 
         // Real elapsed time, not a tick count: after the Mac sleeps the clock
@@ -1202,7 +1198,7 @@ extension AppDelegate: NSSharingServicePickerDelegate {
                               sharingServicesForItems items: [Any],
                               proposedSharingServices proposed: [NSSharingService]) -> [NSSharingService] {
         let icon = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) ?? NSImage()
-        let save = NSSharingService(title: "Save to Downloads", image: icon, alternateImage: nil) { [weak self] in
+        let save = NSSharingService(title: "Download", image: icon, alternateImage: nil) { [weak self] in
             self?.saveCard()
         }
         return [save] + proposed
