@@ -30,7 +30,7 @@ if [ ! -f "Resources/$NAME.icns" ]; then
 fi
 cp "Resources/$NAME.icns" "$APP/Contents/Resources/"
 # Share-card template, and the pixel font its number is set in.
-cp Resources/streak.png Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
+cp Resources/streak.jpg Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
 
 # --- Binary -----------------------------------------------------------------
 swiftc -O -target arm64-apple-macos13.0 -module-cache-path "$CACHE" \

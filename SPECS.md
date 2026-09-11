@@ -83,6 +83,12 @@ top-right corner. Every constant in `Streak` is expressed in the design's own
 939x536 units and scaled to the template's real pixels, so re-exporting the
 template at a different resolution needs no code change.
 
+The template is exported at 144 dpi. `NSImage.size` therefore reports half the
+pixel count, in points, and rendering against it silently halved the card's
+resolution. Read the dimensions off an `NSBitmapImageRep` instead. The template
+is a JPEG, which carries no alpha, so the rounded corners are clipped back out
+at draw time.
+
 Two traps in placing that number, both measured against a reference card:
 
 - `NSAttributedString.draw(at:)` takes the bottom-left of the **text box**, not

@@ -51,6 +51,8 @@ enum Settings {
     static let intervalPresets = [1, 10, 15, 20, 25, 30, 45, 60, 120].map { $0 * 60 }
     static let breakPresets = [20, 30, 60, 90, 120, 180, 300]
     static let idlePresets = [0, 60, 300, 600, 900, 1800]
+    /// Quiet seconds needed during a break before the bar stops nudging.
+    static let nudgeAfter: TimeInterval = 10
 }
 
 // MARK: - Log
@@ -338,10 +340,10 @@ enum Updater {
 
 // MARK: - Streak card
 
-/// The shareable card: `streak.png` from the bundle, with the session count
-/// dropped into the empty top-right corner.
+/// The shareable card: `streak.jpg` from the bundle, with the break count
+/// dropped into its empty top-right corner.
 ///
-/// Every number below is in the design's own 939x536 units and scaled up to the
+/// Every number below is in the design's own 939x536 units and scaled to the
 /// template's real pixels, so re-exporting the template at another resolution
 /// changes nothing here.
 enum Streak {
@@ -352,27 +354,40 @@ enum Streak {
     /// edge, and sit on this baseline.
     private static let rightMargin: CGFloat = 57.5
     private static let baselineFromTop: CGFloat = 169
+    private static let cornerRadius: CGFloat = 35.5
 
-    /// Jersey 15 is bundled, not assumed: it ships with macOS nowhere.
+    /// Jersey 15 is bundled, not assumed: it ships on no Mac.
     private static let fontRegistered: Bool = {
         guard let url = Bundle.main.url(forResource: "Jersey15-Regular", withExtension: "ttf") else { return false }
         return CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
     }()
 
     static func render(count: Int) -> URL? {
-        guard let background = Bundle.main.url(forResource: "streak", withExtension: "png")
-            .flatMap({ NSImage(contentsOf: $0) }) else { return nil }
+        guard let url = Bundle.main.url(forResource: "streak", withExtension: "jpg"),
+              let data = try? Data(contentsOf: url),
+              let template = NSBitmapImageRep(data: data) else { return nil }
 
-        let size = background.size
+        // The template is exported at 144 dpi, so NSImage would report half
+        // these numbers in points and the card would render at half
+        // resolution. Pixels are the only honest unit here.
+        let size = NSSize(width: template.pixelsWide, height: template.pixelsHigh)
         let scale = size.width / design.width
+
         guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+            bitmapDataPlanes: nil, pixelsWide: template.pixelsWide, pixelsHigh: template.pixelsHigh,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        background.draw(in: NSRect(origin: .zero, size: size))
+        NSGraphicsContext.current?.imageInterpolation = .high
+
+        // A JPEG carries no alpha, so the rounded corners have to be cut back
+        // out or the card ships with four opaque ones.
+        let frame = NSRect(origin: .zero, size: size)
+        let radius = cornerRadius * scale
+        NSBezierPath(roundedRect: frame, xRadius: radius, yRadius: radius).addClip()
+        template.draw(in: frame)
 
         _ = fontRegistered
         let font = NSFont(name: "Jersey 15", size: fontSize * scale)
@@ -381,25 +396,22 @@ enum Streak {
             .font: font,
             .foregroundColor: Settings.night.withAlphaComponent(opacity),
         ])
-        // Align on the ink, not on the text box: `size()` carries the font's
-        // side bearing, which pushed the digits 5 units left of the reference.
-        // CTLineGetImageBounds measures the glyphs themselves, relative to the
-        // drawing origin and to the baseline.
-        let line = CTLineCreateWithAttributedString(text)
-        let ink = CTLineGetImageBounds(line, NSGraphicsContext.current?.cgContext)
         // The two axes do not share an origin: draw(at:) takes the box corner,
-        // so x offsets against the ink directly, while y has to give back the
-        // descender to land on the baseline.
-        let origin = NSPoint(x: size.width - rightMargin * scale - ink.maxX,
-                             y: size.height - baselineFromTop * scale + font.descender)
-        text.draw(at: origin)
+        // so x offsets against the ink (size() would add the font's side
+        // bearing), while y has to give back the descender to reach the
+        // baseline.
+        let ink = CTLineGetImageBounds(CTLineCreateWithAttributedString(text),
+                                       NSGraphicsContext.current?.cgContext)
+        text.draw(at: NSPoint(x: size.width - rightMargin * scale - ink.maxX,
+                              y: size.height - baselineFromTop * scale + font.descender))
 
         NSGraphicsContext.restoreGraphicsState()
 
         guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Eyesaver.png")
-        do { try png.write(to: url) } catch { return nil }
-        return url
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Eyesaver \(count) break\(count == 1 ? "" : "s").png")
+        do { try png.write(to: out) } catch { return nil }
+        return out
     }
 }
 
@@ -632,6 +644,9 @@ final class Bar {
     private var goButton: PillButton!
 
     private(set) var visible = false
+    /// Width settled by the prompt and kept for the countdown, so pressing Go
+    /// does not make the pill jump.
+    private var lockedWidth: CGFloat?
 
     private func build() -> NSPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: Settings.pillHeight),
@@ -654,6 +669,7 @@ final class Bar {
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
         icon.contentTintColor = Settings.ink.withAlphaComponent(0.75)
 
+        title.wantsLayer = true
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.textColor = Settings.ink.withAlphaComponent(0.95)
         subtitle.font = .systemFont(ofSize: 11, weight: .regular)
@@ -705,9 +721,11 @@ final class Bar {
         skipButton.update(label: "Skip", shortcut: shortcut.skipLabel)
         goButton.update(shortcut: shortcut.goLabel)
         goButton.isHidden = false
+        lockedWidth = nil
         title.stringValue = "Time to look away"
         subtitle.stringValue = "Rest your eyes for \(Bar.shortFormat(Settings.breakLength))"
         present(panel)
+        lockedWidth = panel.frame.width
     }
 
     func switchToCountdown() {
@@ -715,9 +733,23 @@ final class Bar {
         // Same button, same name: dismissing the countdown is still a skip.
         skipButton.update(label: "Skip", shortcut: Shortcut.current.skipLabel)
         goButton.isHidden = true
-        title.stringValue = "Looking away"
+        setRestingTitle(nudging: false)
         updateCountdown(Settings.breakLength)
         resize(panel, animated: true)
+    }
+
+    /// Calls out a break spent typing, and goes quiet again once the keyboard
+    /// and mouse have been still for a moment. Cross-faded rather than swapped,
+    /// so it reads as a nudge and not as an alarm.
+    func setRestingTitle(nudging: Bool) {
+        let wanted = nudging ? "You\u{2019}re not looking away ^^" : "Looking away"
+        guard title.stringValue != wanted else { return }
+        let fade = CATransition()
+        fade.type = .fade
+        fade.duration = 0.35
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        title.layer?.add(fade, forKey: "fade")
+        title.stringValue = wanted
     }
 
     func updateCountdown(_ remaining: TimeInterval) {
@@ -766,9 +798,7 @@ final class Bar {
     }
 
     private func targetFrame(for panel: NSPanel) -> NSRect {
-        // No minimum: the pill hugs its content, so the lone Skip button of the
-        // countdown state sits against the right padding instead of floating.
-        let width = (panel.contentView?.fittingSize.width ?? 320).rounded(.up)
+        let width = lockedWidth ?? (panel.contentView?.fittingSize.width ?? 320).rounded(.up)
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let area = screen.visibleFrame
         return NSRect(x: (area.midX - width / 2).rounded(),
@@ -814,6 +844,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private var testSignal: DispatchSourceSignal?
     private var cardSignal: DispatchSourceSignal?
     private var lastTitle = ""
+    private var sharePicker: NSSharingServicePicker?
+    private var lastCard: URL?
 
     private let pauseItem = NSMenuItem(title: "Pause", action: #selector(togglePause), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
@@ -948,8 +980,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         autoUpdateItem.state = Updater.automatic ? .on : .off
         let sessions = Settings.completedSessions
         streakItem.title = sessions == 0
-            ? "No breaks taken yet"
-            : "Share my \(sessions) break\(sessions == 1 ? "" : "s")"
+            ? "No Breaks Taken Yet"
+            : "Share my \(sessions) Break\(sessions == 1 ? "" : "s")"
         streakItem.isEnabled = sessions > 0
     }
 
@@ -995,9 +1027,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         guard Settings.completedSessions > 0,
               let anchor = statusItem.button,
               let card = Streak.render(count: Settings.completedSessions) else { return }
+        lastCard = card
         DispatchQueue.main.async {
-            let picker = NSSharingServicePicker(items: [card, Updater.homepage])
+            let picker = NSSharingServicePicker(items: [card])
+            picker.delegate = self
+            self.sharePicker = picker
             picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
+        }
+    }
+
+    /// Copies the card to ~/Downloads and reveals it. The share sheet has no
+    /// save-to-disk entry of its own, so one is added to it.
+    private func saveCard() {
+        guard let card = lastCard else { return }
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        var destination = downloads.appendingPathComponent(card.lastPathComponent)
+        var attempt = 2
+        while FileManager.default.fileExists(atPath: destination.path) {
+            let stem = card.deletingPathExtension().lastPathComponent
+            destination = downloads.appendingPathComponent("\(stem) \(attempt).png")
+            attempt += 1
+        }
+        do {
+            try FileManager.default.copyItem(at: card, to: destination)
+            NSWorkspace.shared.activateFileViewerSelecting([destination])
+        } catch {
+            Log.write("saving the card failed: \(error.localizedDescription)")
+            NSSound.beep()
         }
     }
 
@@ -1081,7 +1137,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     private func heartbeat() {
-        if phase == .resting, let end = breakEnd { bar.updateCountdown(end.timeIntervalSinceNow) }
+        if phase == .resting, let end = breakEnd {
+            bar.updateCountdown(end.timeIntervalSinceNow)
+            // Any input during a break means the eyes are still on the screen.
+            // It takes ten quiet seconds to earn the message back.
+            bar.setRestingTitle(nudging: Activity.idleSeconds < Settings.nudgeAfter)
+        }
 
         // Real elapsed time, not a tick count: after the Mac sleeps the clock
         // has moved even though the heartbeat has not fired.
@@ -1106,8 +1167,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             // "0" during the wait.
             countdown = "\(max(1, Int((remaining / 60).rounded(.up))))"
         }
-        let sessions = Settings.completedSessions
-        let title = sessions > 0 ? " \(countdown) · \(Bar.compact(sessions))" : " \(countdown)"
+        let title = " \(countdown)"
         if title != lastTitle {
             lastTitle = title
             statusItem.button?.title = title
@@ -1117,6 +1177,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
 extension AppDelegate: NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) { refreshMenuState() }
+}
+
+extension AppDelegate: NSSharingServicePickerDelegate {
+    func sharingServicePicker(_ picker: NSSharingServicePicker,
+                              sharingServicesForItems items: [Any],
+                              proposedSharingServices proposed: [NSSharingService]) -> [NSSharingService] {
+        let icon = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil) ?? NSImage()
+        let save = NSSharingService(title: "Save to Downloads", image: icon, alternateImage: nil) { [weak self] in
+            self?.saveCard()
+        }
+        return [save] + proposed
+    }
 }
 
 let app = NSApplication.shared
