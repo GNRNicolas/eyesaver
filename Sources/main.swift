@@ -52,11 +52,11 @@ enum Settings {
     static let intervalPresets = [1, 10, 15, 20, 25, 30, 45, 60, 120].map { $0 * 60 }
     static let breakPresets = [20, 30, 60, 90, 120, 180, 300]
     static let idlePresets = [0, 60, 300, 600, 900, 1800]
-    /// Quiet seconds needed during a break before the bar stops nudging.
-    static let nudgeAfter: TimeInterval = 5
-    /// Grace at the start of a break: pressing Go is itself an input, so
-    /// nudging straight away would always be wrong.
-    static let nudgeGrace: TimeInterval = 10
+    /// Seconds of continuous activity during a break before the bar says so.
+    static let nudgeAfter: TimeInterval = 1
+    /// Quiet seconds that clear the message again. Wider than `nudgeAfter` on
+    /// purpose: without hysteresis the title would flicker between keystrokes.
+    static let nudgeClear: TimeInterval = 5
 }
 
 // MARK: - Log
@@ -847,7 +847,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private var remaining = Settings.interval
     private var lastBeat = Date()
     private var breakEnd: Date?
-    private var restStarted: Date?
+    private var nudgeArmed = false
+    private var activeSince: Date?
     private var breakTimer: Timer?
     private var tick: Timer?
     private var paused = false
@@ -1038,8 +1039,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
               let anchor = statusItem.button,
               let card = Streak.render(count: Settings.completedSessions) else { return }
         lastCard = card
+        // Messages and Mail drop a file URL that points into the temporary
+        // directory: nothing is attached, and nothing is reported. An NSImage
+        // goes onto the pasteboard as image data, which every service handles.
+        // The URL is kept for the Download entry, which does want a file.
+        guard let image = NSImage(contentsOf: card) else { return }
         DispatchQueue.main.async {
-            let picker = NSSharingServicePicker(items: [card])
+            let picker = NSSharingServicePicker(items: [image])
             picker.delegate = self
             self.sharePicker = picker
             picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
@@ -1110,7 +1116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             guard let self else { return }
             switch action {
             case .skip: self.barDidSkip()
-            case .go: self.phase == .prompt ? self.barDidGo() : self.barDidSkip()
+            // Go belongs to the prompt only. During the countdown it does
+            // nothing: ending a break is Skip's job, whatever the preset.
+            case .go: if self.phase == .prompt { self.barDidGo() }
             }
         }
     }
@@ -1125,7 +1133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         phase = .resting
         borders.hide()
         bar.switchToCountdown()
-        restStarted = Date()
+        nudgeArmed = false
+        activeSince = nil
         breakEnd = Date().addingTimeInterval(Settings.breakLength)
         breakTimer?.invalidate()
         breakTimer = Timer.scheduledTimer(withTimeInterval: Settings.breakLength, repeats: false) { [weak self] _ in
@@ -1143,19 +1152,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         shortcuts.disable()
         breakTimer?.invalidate(); breakTimer = nil
         breakEnd = nil
-        restStarted = nil
         borders.hide()
         bar.hide()
     }
 
+    /// True once the user has been back at the keyboard for a moment.
+    ///
+    /// Arming on the first quiet second rather than on a fixed delay is what
+    /// keeps the Go keypress itself from counting: Go is an input, and any
+    /// grace period long enough to cover it would be arbitrary.
+    private func shouldNudge() -> Bool {
+        let idle = Activity.idleSeconds
+        guard nudgeArmed else {
+            if idle >= Settings.nudgeAfter { nudgeArmed = true }
+            return false
+        }
+        if idle >= Settings.nudgeClear {
+            activeSince = nil
+            return false
+        }
+        if idle < Settings.nudgeAfter {
+            if activeSince == nil { activeSince = Date() }
+        }
+        guard let since = activeSince else { return false }
+        return Date().timeIntervalSince(since) >= Settings.nudgeAfter
+    }
+
     private func heartbeat() {
-        if phase == .resting, let end = breakEnd, let started = restStarted {
+        if phase == .resting, let end = breakEnd {
             bar.updateCountdown(end.timeIntervalSinceNow)
-            // Input during a break means the eyes are still on the screen, but
-            // only once the break has had time to settle: pressing Go is an
-            // input too.
-            let settled = Date().timeIntervalSince(started) >= Settings.nudgeGrace
-            bar.setRestingTitle(nudging: settled && Activity.idleSeconds < Settings.nudgeAfter)
+            bar.setRestingTitle(nudging: shouldNudge())
         }
 
         // Real elapsed time, not a tick count: after the Mac sleeps the clock
