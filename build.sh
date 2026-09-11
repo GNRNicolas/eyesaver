@@ -30,10 +30,14 @@ if [ ! -f "Resources/$NAME.icns" ]; then
   if [ -f Resources/icon.png ]; then
     # A hand-made icon wins. Expects a square PNG, 1024x1024, with the rounded
     # square already drawn in: macOS does not round app icons for you.
+    # Not `set -- $pair`: that overwrites the positional parameters, and the
+    # --install test at the bottom of this script reads $1. It only bites on a
+    # first build, which is the one where someone is installing.
     for pair in "16 16x16" "32 16x16@2x" "32 32x32" "64 32x32@2x" "128 128x128" \
                 "256 128x128@2x" "256 256x256" "512 256x256@2x" "512 512x512" "1024 512x512@2x"; do
-      set -- $pair
-      sips -z "$1" "$1" Resources/icon.png --out "build/$NAME.iconset/icon_$2.png" >/dev/null
+      pixels="${pair% *}"
+      label="${pair#* }"
+      sips -z "$pixels" "$pixels" Resources/icon.png --out "build/$NAME.iconset/icon_$label.png" >/dev/null
     done
   else
     compile -O -o build/makeicon Tools/makeicon.swift
