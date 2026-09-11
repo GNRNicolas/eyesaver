@@ -187,6 +187,7 @@ final class GlobalShortcuts {
 /// no identifier, nothing stored beyond the date of the last check.
 enum Updater {
     static let repository = "GNRNicolas/eyesaver"
+    static let homepage = URL(string: "https://github.com/GNRNicolas/eyesaver")!
     private static let endpoint = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
     private static let checkInterval: TimeInterval = 24 * 60 * 60
 
@@ -761,6 +762,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
         menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
+        menu.addItem(item("Star on GitHub", #selector(openRepository)))
+        menu.addItem(item("Share Eyesaver…", #selector(share)))
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit Eyesaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.items.forEach { if $0.action != nil { $0.target = self } }
         menu.addItem(quit)
@@ -834,6 +838,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     }
 
     @objc private func checkForUpdates() { Updater.check(manual: true) }
+
+    @objc private func openRepository() { NSWorkspace.shared.open(Updater.homepage) }
+
+    /// The macOS share sheet, anchored on the menu bar item. Deferred: the
+    /// picker cannot be presented while the menu it was invoked from is still
+    /// tearing down.
+    @objc private func share() {
+        guard let anchor = statusItem.button else { return }
+        DispatchQueue.main.async {
+            let picker = NSSharingServicePicker(items: [Updater.homepage])
+            picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
+        }
+    }
 
     @objc private func toggleAutoUpdate() {
         Updater.automatic.toggle()
