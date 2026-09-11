@@ -75,7 +75,9 @@ with **Check for Updates Automatically**.
 
 ## Forking
 
-[SPECS.md](SPECS.md) covers the architecture and the AppKit traps this ran into.
+[FORKME.md](FORKME.md) is the guide for making this yours: what to rename, where
+everything lives, and the traps that cost a debugging session.
+[SPECS.md](SPECS.md) covers the architecture behind it.
 
 ## License
 
