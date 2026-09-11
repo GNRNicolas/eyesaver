@@ -32,6 +32,7 @@ enum Settings {
     static let blinkPeriod: CFTimeInterval = 1.1
 
     static let pillRadius: CGFloat = 16
+    static let pillWidth: CGFloat = 460
     static let pillHeight: CGFloat = 60
     static let pillBottomMargin: CGFloat = 15
 
@@ -644,9 +645,6 @@ final class Bar {
     private var goButton: PillButton!
 
     private(set) var visible = false
-    /// Width settled by the prompt and kept for the countdown, so pressing Go
-    /// does not make the pill jump.
-    private var lockedWidth: CGFloat?
 
     private func build() -> NSPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 460, height: Settings.pillHeight),
@@ -675,10 +673,20 @@ final class Bar {
         subtitle.font = .systemFont(ofSize: 11, weight: .regular)
         subtitle.textColor = Settings.ink.withAlphaComponent(0.55)
 
+        for field in [title, subtitle] {
+            field.lineBreakMode = .byTruncatingTail
+            field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        }
         let labels = NSStackView(views: [title, subtitle])
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 1
+        // The slack of the fixed width lands here, so neither the icon on the
+        // left nor the button on the right ever moves.
+        labels.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        labels.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        icon.setContentHuggingPriority(.required, for: .horizontal)
 
         let shortcut = Shortcut.current
         skipButton = PillButton(label: "Skip", shortcut: shortcut.skipLabel, prominent: false,
@@ -689,6 +697,8 @@ final class Bar {
         let buttons = NSStackView(views: [skipButton, goButton])
         buttons.orientation = .horizontal
         buttons.spacing = 8
+        buttons.setContentHuggingPriority(.required, for: .horizontal)
+        buttons.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let row = NSStackView(views: [icon, labels, buttons])
         row.orientation = .horizontal
@@ -696,7 +706,6 @@ final class Bar {
         row.spacing = 12
         row.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 14)
         row.translatesAutoresizingMaskIntoConstraints = false
-        row.setHuggingPriority(.defaultHigh, for: .horizontal)
 
         background.addSubview(row)
         NSLayoutConstraint.activate([
@@ -721,11 +730,9 @@ final class Bar {
         skipButton.update(label: "Skip", shortcut: shortcut.skipLabel)
         goButton.update(shortcut: shortcut.goLabel)
         goButton.isHidden = false
-        lockedWidth = nil
         title.stringValue = "Time to look away"
         subtitle.stringValue = "Rest your eyes for \(Bar.shortFormat(Settings.breakLength))"
         present(panel)
-        lockedWidth = panel.frame.width
     }
 
     func switchToCountdown() {
@@ -798,7 +805,9 @@ final class Bar {
     }
 
     private func targetFrame(for panel: NSPanel) -> NSRect {
-        let width = lockedWidth ?? (panel.contentView?.fittingSize.width ?? 320).rounded(.up)
+        // Fixed, never derived from the content: the title changes length
+        // during a break, and a pill that resized would drag the button with it.
+        let width = Settings.pillWidth
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let area = screen.visibleFrame
         return NSRect(x: (area.midX - width / 2).rounded(),
@@ -851,6 +860,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private let loginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
     private let autoUpdateItem = NSMenuItem(title: "Check for Updates Automatically", action: #selector(toggleAutoUpdate), keyEquivalent: "")
     private let streakItem = NSMenuItem(title: "", action: #selector(shareStreak), keyEquivalent: "")
+    private let downloadItem = NSMenuItem(title: "Download", action: #selector(downloadCard), keyEquivalent: "")
 
     private enum Phase { case idle, prompt, resting }
     private var phase: Phase = .idle
@@ -928,6 +938,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         menu.addItem(autoUpdateItem)
         menu.addItem(.separator())
         menu.addItem(streakItem)
+        menu.addItem(downloadItem)
         menu.addItem(.separator())
         menu.addItem(item("Star on GitHub", #selector(openRepository)))
         menu.addItem(item("Share Eyesaver", #selector(share)))
@@ -983,6 +994,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             ? "No Breaks Taken Yet"
             : "Share my \(sessions) Break\(sessions == 1 ? "" : "s")"
         streakItem.isEnabled = sessions > 0
+        downloadItem.isEnabled = sessions > 0
     }
 
     @objc private func pickInterval(_ sender: NSMenuItem) {
@@ -1034,6 +1046,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             self.sharePicker = picker
             picker.show(relativeTo: .zero, of: anchor, preferredEdge: .minY)
         }
+    }
+
+    @objc private func downloadCard() {
+        guard Settings.completedSessions > 0 else { return }
+        lastCard = Streak.render(count: Settings.completedSessions)
+        saveCard()
     }
 
     /// Copies the card to ~/Downloads and reveals it. The share sheet has no

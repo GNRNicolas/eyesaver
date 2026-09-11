@@ -38,7 +38,7 @@ need to go further.
 | The lists in the menu | `Settings.intervalPresets`, `Settings.breakPresets` |
 | Border thickness, corner radius, blink speed | `Settings.borderWidth`, `borderInnerRadius`, `blinkPeriod` |
 | Colours | `Settings.borderColor`, `Settings.ink` |
-| Bar size and position | `Settings.pillRadius`, `pillHeight`, `pillBottomMargin` |
+| Bar size and position | `Settings.pillWidth`, `pillHeight`, `pillRadius`, `pillBottomMargin` |
 | The words in the bar | `Bar.showPrompt()` and `Bar.switchToCountdown()` |
 | Shortcut presets | `Shortcut.spec`, one `switch`, one case per preset |
 | Menu contents | `AppDelegate.buildMenu()` |
@@ -66,6 +66,8 @@ Each of these cost a debugging session. Details in [SPECS.md](SPECS.md).
 - **Do not consume a bare `space`.** Someone is mid-sentence when the break
   fires. This is why the default preset uses a modifier.
 - **`build.sh` starts with `rm -rf build`.** Do not leave anything in there.
+- **Never `defaults delete` a key while testing.** The break count lives in
+  UserDefaults and there is no undo. Read it, set it back when you are done.
 
 ## Testing a change
 
