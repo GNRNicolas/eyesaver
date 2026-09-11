@@ -63,12 +63,19 @@ with no permission at all and takes priority over other apps.
 | Open at Login | via `SMAppService` |
 
 The countdown stops while the keyboard and mouse are quiet, so a break never
-waits for you while you are away from the machine. The menu bar shows how many
-breaks you have taken all the way through, and offers to share a card of it.
+waits for you while you are away from the machine.
 
 The default pair uses `return` because `⌘space` is Spotlight. The bare preset
 swallows `space` while the alert is up, which stops you finishing a sentence
 before you look away.
+
+## Breaks
+
+A break counts once its countdown runs out; pressing Skip early does not. The
+menu keeps the total and can put it on a card, to share or to **Download** into
+`~/Downloads`.
+
+During a break the bar notices if you carry on typing, and says so.
 
 ## Updates
 
