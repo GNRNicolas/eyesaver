@@ -6,10 +6,20 @@ cd "$(dirname "$0")"
 NAME="Eyesaver"
 ID="fr.nicolasgarnier.eyesaver"
 APP="build/$NAME.app"
-CACHE="build/.modulecache"
+
+# Swift's shared module cache is what makes a rebuild take seconds instead of a
+# minute: compiling this file is 5 s against a warm cache and 45 s against an
+# empty one, and AppKit is most of that. Leave it where Swift puts it, shared
+# with every other project on the machine. EYESAVER_MODULE_CACHE overrides it
+# for sandboxed environments that cannot write to the default location.
+CACHE_FLAG=()
+if [ -n "${EYESAVER_MODULE_CACHE:-}" ]; then
+  mkdir -p "$EYESAVER_MODULE_CACHE"
+  CACHE_FLAG=(-module-cache-path "$EYESAVER_MODULE_CACHE")
+fi
 
 rm -rf build
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$CACHE"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # --- Icon: Resources/icon.png if you made one, the 👀 emoji otherwise -------
 if [ ! -f "Resources/$NAME.icns" ]; then
@@ -23,7 +33,7 @@ if [ ! -f "Resources/$NAME.icns" ]; then
       sips -z "$1" "$1" Resources/icon.png --out "build/$NAME.iconset/icon_$2.png" >/dev/null
     done
   else
-    swiftc -O -module-cache-path "$CACHE" -o build/makeicon Tools/makeicon.swift
+    swiftc -O "${CACHE_FLAG[@]}" -o build/makeicon Tools/makeicon.swift
     ./build/makeicon "build/$NAME.iconset"
   fi
   iconutil -c icns -o "Resources/$NAME.icns" "build/$NAME.iconset"
@@ -33,7 +43,7 @@ cp "Resources/$NAME.icns" "$APP/Contents/Resources/"
 cp Resources/card.jpg Resources/Jersey15-Regular.ttf Resources/Jersey15-OFL.txt "$APP/Contents/Resources/"
 
 # --- Binary -----------------------------------------------------------------
-swiftc -O -target arm64-apple-macos13.0 -module-cache-path "$CACHE" \
+swiftc -O -target arm64-apple-macos13.0 "${CACHE_FLAG[@]}" \
   -o "$APP/Contents/MacOS/$NAME" Sources/main.swift
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -63,17 +73,23 @@ codesign --force --sign - --identifier "$ID" "$APP"
 
 # --- Install ----------------------------------------------------------------
 if [ "${1:-}" = "--install" ]; then
-  # Replacing the bundle under a running copy leaves that copy on the old code,
-  # so the install looks like it did nothing at all.
-  if pkill -f "/Applications/$NAME.app/Contents/MacOS/$NAME" 2>/dev/null; then
+  # Quit every running copy, wherever it was started from. Replacing the bundle
+  # under a live process leaves it on the old code, and a copy still running out
+  # of build/ would give you a second menu bar icon doing the same job.
+  if pkill -f "$NAME.app/Contents/MacOS/$NAME" 2>/dev/null; then
     # LaunchServices answers -609 to an `open` that follows the kill too
     # closely, and nothing starts.
     sleep 2
   fi
   rm -rf "/Applications/$NAME.app"
   cp -R "$APP" "/Applications/"
+  # Leave exactly one bundle on the disk. Two with the same identifier and
+  # LaunchServices is free to open whichever it likes.
+  rm -rf "$APP"
   open "/Applications/$NAME.app"
-  echo "→ /Applications/$NAME.app (running)"
+  echo "→ installed in /Applications and started"
+  echo "  It has no window and no Dock icon: look for the timer in the menu bar,"
+  echo "  at the top right of the screen, next to the clock."
 else
   echo "→ $(pwd)/$APP"
 fi

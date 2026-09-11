@@ -969,6 +969,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.write("--- launch ---")
+        guard !quitIfAlreadyRunning() else { return }
         bar.delegate = self
         buildMenu()
         resetInterval()
@@ -986,6 +987,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         ) { [weak self] _ in
             self?.borders.rebuild()
         }
+    }
+
+    /// Two copies of Eyesaver mean two menu bar icons, two countdowns and two
+    /// borders, and nothing on screen says which is which. It happens easily
+    /// enough: a bundle left in a build directory and the installed one share
+    /// an identifier, and LaunchServices may open either.
+    private func quitIfAlreadyRunning() -> Bool {
+        let identifier = Bundle.main.bundleIdentifier ?? ""
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { $0 != .current }
+        guard let first = others.first else { return false }
+        Log.write("already running (pid \(first.processIdentifier)); quitting this copy")
+        NSApp.terminate(nil)
+        return true
     }
 
     /// `kill -USR1 <pid>` triggers a break, `-USR2` renders the share card.
