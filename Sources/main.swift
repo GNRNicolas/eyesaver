@@ -43,16 +43,22 @@ enum Log {
         .homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/eyesaver.log")
 
+    /// The file is append-only and the app runs for months, so it needs a cap.
+    private static let sizeLimit = 256 * 1024
+
     static func write(_ message: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
+        guard let handle = try? FileHandle(forWritingTo: url) else {
             try? data.write(to: url)
+            return
         }
+        defer { try? handle.close() }
+        let end = (try? handle.seekToEnd()) ?? 0
+        if end > sizeLimit {
+            try? handle.truncate(atOffset: 0)
+        }
+        try? handle.write(contentsOf: data)
     }
 }
 
@@ -226,8 +232,8 @@ enum Updater {
             let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
             // Only follow a link GitHub itself served, and only over HTTPS.
             let page = (json["html_url"] as? String).flatMap(URL.init(string:))
-            let safePage = page?.scheme == "https" && (page?.host?.hasSuffix("github.com") ?? false)
-                ? page : URL(string: "https://github.com/\(repository)/releases/latest")
+            let fallback = URL(string: "https://github.com/\(repository)/releases/latest")
+            let safePage = isGitHub(page) ? page : fallback
 
             Log.write("update check: local \(currentVersion), latest \(latest)")
             DispatchQueue.main.async {
@@ -238,6 +244,13 @@ enum Updater {
                 }
             }
         }.resume()
+    }
+
+    /// A plain `hasSuffix("github.com")` would also accept `evilgithub.com`,
+    /// so the host has to match exactly or sit on a real subdomain.
+    static func isGitHub(_ url: URL?) -> Bool {
+        guard let url, url.scheme == "https", let host = url.host?.lowercased() else { return false }
+        return host == "github.com" || host.hasSuffix(".github.com")
     }
 
     /// Numeric component-wise comparison, so 1.10 beats 1.9.
