@@ -953,6 +953,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private static let nudgeClear: TimeInterval = 5
 
     private var lastStatusTitle = ""
+    /// Previous idle state, so the log records the change and not every beat.
+    private var wasAway = false
+    /// Anything longer than this between two beats is a suspended process,
+    /// not a slow one.
+    private static let suspensionGap: TimeInterval = 30
     /// The share sheet is torn down as soon as its picker is released.
     private var sharePicker: NSSharingServicePicker?
     private var lastCard: URL?
@@ -1331,15 +1336,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             bar.setRestingTitle(nudging: shouldNudge())
         }
 
-        // Real elapsed time, not a tick count: after the Mac sleeps the clock
-        // has moved even though the heartbeat has not fired.
+        // Real elapsed time rather than a tick count, because a timer fires
+        // late under load and the drift would add up over twenty minutes.
         let now = Date()
         let elapsed = now.timeIntervalSince(lastBeat)
         lastBeat = now
+
         let away = Activity.isIdle
+        if away != wasAway {
+            wasAway = away
+            Log.write(away ? "idle: countdown held" : "active again: countdown resumed")
+        }
+
         if phase == .idle && !paused && !away {
-            remaining -= elapsed
-            if remaining <= 0 { startPrompt() }
+            if elapsed > Self.suspensionGap {
+                // The heartbeat fires four times a second, so a gap this wide
+                // means the Mac slept: the clock moved, but nobody was looking
+                // at the screen. Counting it down was how you got a break
+                // thrown at you the second you opened the lid.
+                Log.write("woke after \(Int(elapsed)) s asleep; that time does not count")
+                if elapsed >= Settings.breakLength { resetInterval() }
+            } else {
+                remaining -= elapsed
+                if remaining <= 0 { startPrompt() }
+            }
         }
 
         let countdown: String
