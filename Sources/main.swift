@@ -872,7 +872,10 @@ final class Bar {
 
     private func present() {
         reposition(animated: false)
-        guard !visible else { return }
+        // Not `guard !visible`: the flag alone would let a panel that is hidden
+        // while the flag says otherwise stay hidden forever. Asking the window
+        // makes this self-healing.
+        guard !visible || !panel.isVisible else { return }
         visible = true
         panel.alphaValue = 0
         let destination = targetFrame()
@@ -892,7 +895,15 @@ final class Bar {
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
             panel.animator().alphaValue = 0
-        }, completionHandler: { [self] in panel.orderOut(nil) })
+        }, completionHandler: { [self] in
+            // The bar may have been asked back during the fade, in which case
+            // this handler belongs to a dismissal that no longer applies.
+            // Ordering the window out here would strand it: off screen, with
+            // `visible` true, so every later present() returned early and the
+            // bar never came back for the rest of the session.
+            guard !visible else { return }
+            panel.orderOut(nil)
+        })
     }
 
     /// Puts the pill back where it belongs, following the main display.
