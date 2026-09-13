@@ -777,6 +777,10 @@ final class Bar {
         return panel.isVisible && panel.alphaValue > 0.9
     }
 
+    /// A bar with no words in it is as useless as no bar at all, and just as
+    /// invisible to a check that only asks whether the window is up.
+    var hasText: Bool { !title.stringValue.isEmpty && !subtitle.stringValue.isEmpty }
+
     /// One line for the log when they disagree.
     var diagnostics: String {
         guard let panel = builtPanel else { return "no panel built" }
@@ -796,10 +800,11 @@ final class Bar {
     /// cannot be inspected or reset from here. The border is rebuilt for every
     /// break and has never once failed to appear; the bar was the only thing
     /// being reused.
-    private func discardPanel() {
+    private func rebuildPanel() {
         builtPanel?.orderOut(nil)
         builtPanel = nil
         visible = false
+        _ = panel   // build it now, so the labels below are the ones on screen
     }
 
     private func build() -> NSPanel {
@@ -881,9 +886,11 @@ final class Bar {
     // MARK: Presentation
 
     func showPrompt() {
-        // A break is minutes apart from the last one: building the window
-        // again costs nothing here, and buys a window with no history.
-        discardPanel()
+        // Rebuild BEFORE touching any label. The subviews belong to the panel
+        // and are created with it, so a title set before this line would be
+        // written to views that are about to be thrown away, and the bar would
+        // come up blank.
+        rebuildPanel()
         goButton?.isHidden = false
         title.stringValue = "Time to look away"
         subtitle.stringValue = "Rest your eyes for \(Format.duration(Settings.breakLength))"
@@ -1029,8 +1036,11 @@ enum StressTest {
                     bar.showPrompt()
                     after(settleTime) {
                         if !bar.isReallyOnScreen {
-                            failures.append((cycle, shape, bar.diagnostics))
-                            note("cycle \(cycle) FAILED (\(shape)): \(bar.diagnostics)")
+                            failures.append((cycle, shape, "not on screen: " + bar.diagnostics))
+                            note("cycle \(cycle) FAILED (\(shape)): not on screen: \(bar.diagnostics)")
+                        } else if !bar.hasText {
+                            failures.append((cycle, shape, "on screen but blank"))
+                            note("cycle \(cycle) FAILED (\(shape)): on screen but blank")
                         }
                         bar.hide()
                         after(0.2, nextCycle)
