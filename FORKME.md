@@ -83,10 +83,28 @@ Each of these cost a debugging session. Details in [SPECS.md](SPECS.md).
 
 ```sh
 ./build.sh --install     # builds, installs to /Applications, launches
-kill -USR1 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # trigger a break now
-kill -USR2 $(pgrep -f "Eyesaver.app/Contents/MacOS")   # render the share card
+EYE=$(pgrep -f "Eyesaver.app/Contents/MacOS")
+kill -USR1 $EYE          # trigger a break now
+kill -INFO $EYE          # dismiss it, the way Skip does
+kill -USR2 $EYE          # render the share card
 tail -f ~/Library/Logs/eyesaver.log
+
+./build/Eyesaver.app/Contents/MacOS/Eyesaver --stress 120   # exercise the bar
 ```
+
+USR1 and INFO together drive a whole break from a script, which is how you
+check that the bar really comes up rather than asking someone to watch.
+
+`--stress` shows and hides the bar a few hundred times, varying how long it
+stays up and how soon it is asked for again, and exits non-zero if the window
+ever failed to appear. Run it after touching anything in `Bar`.
+
+**Judge the window from outside the app.** `Bar.isReallyOnScreen` can only see
+what AppKit reports; a window can be fully opaque, correctly placed, and still
+not composited. A separate binary calling `CGWindowListCopyWindowInfo` and
+filtering on `kCGWindowOwnerName == "Eyesaver"` prints the real bounds, alpha
+and `kCGWindowIsOnscreen` of every window, without restarting the app and
+destroying the evidence. That is what found this bug.
 
 `kill -USR1` is the fastest way to see an alert without waiting or clicking
 through the menu. The log records launches, hotkey registration and update

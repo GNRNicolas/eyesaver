@@ -57,6 +57,25 @@ What limits the damage instead:
 - A refused registration is written to `~/Library/Logs/eyesaver.log`, and the
   line after it reports how many of the two keys were obtained.
 
+## The bar is rebuilt for every break
+
+The window is thrown away on dismissal and built again on the next prompt,
+rather than kept and re-shown. It costs nothing: breaks are minutes apart.
+
+What it buys is a window with no history. A reused panel was measured, on a
+bar that had stopped appearing, as fully opaque, correctly placed, and not
+composited, with nothing in the app having ordered it out. A window that has
+lived through Space changes, full-screen apps and interrupted animations
+carries state that cannot be inspected or reset from here. The border has
+never once failed to appear, and the border is rebuilt every time.
+
+`startPrompt()` also checks, a second later, that the window really came up,
+and rebuilds it once if it did not. A border with no bar leaves no way to
+answer the prompt, which is the one failure worth a safety net. The check runs
+once per prompt on purpose: rebuilding restarts the entry animation, so a
+check on its own timer would measure a bar still fading in and rebuild it
+again, and again, for as long as the prompt lasted.
+
 ## The border is a filled ring, not a stroke
 
 A stroke is centred on its path, so both its edges share one corner radius.

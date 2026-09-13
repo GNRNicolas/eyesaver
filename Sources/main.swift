@@ -750,19 +750,57 @@ protocol BarDelegate: AnyObject {
 final class Bar {
     weak var delegate: BarDelegate?
 
-    private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "")
-    private let subtitle = NSTextField(labelWithString: "")
+    // Rebuilt for each break, so none of these exist before the first one.
+    private var icon = NSImageView()
+    private var title = NSTextField(labelWithString: "")
+    private var subtitle = NSTextField(labelWithString: "")
+    private var skipButton: PillButton?
+    private var goButton: PillButton?
 
-    // Built on first use rather than at startup: an app that spends most of its
-    // life waiting has no reason to hold a window it has never shown.
-    private lazy var skipButton = PillButton(label: "Skip", shortcut: Shortcut.current.skipLabel,
-                                             prominent: false, target: self, action: #selector(skip))
-    private lazy var goButton = PillButton(label: "Go", shortcut: Shortcut.current.goLabel,
-                                           prominent: true, target: self, action: #selector(go))
-    private lazy var panel: NSPanel = build()
+    /// Kept as an optional rather than a `lazy var` so that asking about its
+    /// state never creates it.
+    private var builtPanel: NSPanel?
+    private var panel: NSPanel {
+        if let builtPanel { return builtPanel }
+        let panel = build()
+        builtPanel = panel
+        return panel
+    }
 
     private(set) var visible = false
+
+    /// What the window IS, as opposed to what `visible` claims. The two
+    /// disagreeing is the failure worth catching: the bar is then invisible
+    /// with the app convinced it is showing.
+    var isReallyOnScreen: Bool {
+        guard let panel = builtPanel else { return false }
+        return panel.isVisible && panel.alphaValue > 0.9
+    }
+
+    /// One line for the log when they disagree.
+    var diagnostics: String {
+        guard let panel = builtPanel else { return "no panel built" }
+        return "visible=\(visible) isVisible=\(panel.isVisible)"
+            + " alpha=\(String(format: "%.2f", panel.alphaValue))"
+            + " frame=\(NSStringFromRect(panel.frame))"
+            + " onSpace=\(panel.screen != nil)"
+            + " window=\(panel.windowNumber)"
+    }
+
+    /// Throws the window away. The next prompt builds a new one.
+    ///
+    /// Measured on a bar that had stopped appearing: the panel was still
+    /// there, fully opaque, correctly placed, and not on screen, with nothing
+    /// in the app having ordered it out. A window that has lived through Space
+    /// changes, full-screen apps and interrupted animations carries state that
+    /// cannot be inspected or reset from here. The border is rebuilt for every
+    /// break and has never once failed to appear; the bar was the only thing
+    /// being reused.
+    private func discardPanel() {
+        builtPanel?.orderOut(nil)
+        builtPanel = nil
+        visible = false
+    }
 
     private func build() -> NSPanel {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Style.pillWidth, height: Style.pillHeight),
@@ -780,6 +818,16 @@ final class Bar {
         panel.appearance = NSAppearance(named: .vibrantDark)
 
         let background = PillBackground()
+
+        icon = NSImageView()
+        title = NSTextField(labelWithString: "")
+        subtitle = NSTextField(labelWithString: "")
+        let skip = PillButton(label: "Skip", shortcut: Shortcut.current.skipLabel,
+                              prominent: false, target: self, action: #selector(self.skip))
+        let go = PillButton(label: "Go", shortcut: Shortcut.current.goLabel,
+                            prominent: true, target: self, action: #selector(self.go))
+        skipButton = skip
+        goButton = go
 
         icon.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
@@ -800,7 +848,7 @@ final class Bar {
         labels.alignment = .leading
         labels.spacing = 1
 
-        let buttons = NSStackView(views: [skipButton, goButton])
+        let buttons = NSStackView(views: [skip, go])
         buttons.orientation = .horizontal
         buttons.spacing = 8
 
@@ -833,10 +881,10 @@ final class Bar {
     // MARK: Presentation
 
     func showPrompt() {
-        let shortcut = Shortcut.current
-        skipButton.update(label: "Skip", shortcut: shortcut.skipLabel)
-        goButton.update(shortcut: shortcut.goLabel)
-        goButton.isHidden = false
+        // A break is minutes apart from the last one: building the window
+        // again costs nothing here, and buys a window with no history.
+        discardPanel()
+        goButton?.isHidden = false
         title.stringValue = "Time to look away"
         subtitle.stringValue = "Rest your eyes for \(Format.duration(Settings.breakLength))"
         present()
@@ -844,8 +892,8 @@ final class Bar {
 
     func switchToCountdown() {
         // Same button, same name: dismissing the countdown is still a skip.
-        skipButton.update(label: "Skip", shortcut: Shortcut.current.skipLabel)
-        goButton.isHidden = true
+        skipButton?.update(label: "Skip", shortcut: Shortcut.current.skipLabel)
+        goButton?.isHidden = true
         setRestingTitle(nudging: false)
         updateCountdown(Settings.breakLength)
         reposition(animated: true)
@@ -890,7 +938,7 @@ final class Bar {
     }
 
     func hide() {
-        guard visible else { return }
+        guard visible, let panel = builtPanel else { return }
         visible = false
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.18
@@ -930,6 +978,85 @@ final class Bar {
                       y: area.minY + Style.pillBottomMargin,
                       width: Style.pillWidth,
                       height: Style.pillHeight)
+    }
+}
+
+// MARK: - Stress test
+
+/// `Eyesaver --stress [cycles]` drives the bar through show and hide over and
+/// over, varying how long it stays up and how soon it is asked for again, and
+/// reports every cycle where the window did not actually come up.
+///
+/// It exists because "the border pulsed and no bar came with it" is rare and
+/// impossible to reproduce by hand: the windows that trigger it are fractions
+/// of a second wide. It touches nothing else: no menu bar item, no border, no
+/// shortcuts, and never the break count.
+enum StressTest {
+    static var requestedCycles: Int? {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--stress") else { return nil }
+        return args.indices.contains(index + 1) ? Int(args[index + 1]) ?? 200 : 200
+    }
+
+    /// Past the 0.22 s entry animation and the 0.18 s fade of a dismissal that
+    /// may still be in flight.
+    private static let settleTime: TimeInterval = 0.45
+
+    /// How long the bar is left up, and how soon after a dismissal it is asked
+    /// for again. Both sweep across the two animation durations, which is where
+    /// a handler belonging to one transition lands inside the next.
+    private static let holds: [TimeInterval] = [0, 0.05, 0.1, 0.19, 0.23, 0.45]
+    private static let gaps: [TimeInterval] = [0, 0.02, 0.05, 0.1, 0.17, 0.19, 0.25, 0.4]
+
+    static func run(bar: Bar, cycles: Int) {
+        var failures: [(cycle: Int, shape: String, state: String)] = []
+        var cycle = 0
+
+        func nextCycle() {
+            guard cycle < cycles else { return report(failures, of: cycles) }
+            cycle += 1
+            let hold = holds.randomElement()!
+            let gap = gaps.randomElement()!
+            let shape = "hold \(hold) s / gap \(gap) s"
+
+            // Shown, dismissed part way through, asked for again before the
+            // fade has finished. Only the second request is judged: whatever
+            // the churn before it, a bar that was asked for must be up.
+            bar.showPrompt()
+            after(hold) {
+                bar.hide()
+                after(gap) {
+                    bar.showPrompt()
+                    after(settleTime) {
+                        if !bar.isReallyOnScreen {
+                            failures.append((cycle, shape, bar.diagnostics))
+                            note("cycle \(cycle) FAILED (\(shape)): \(bar.diagnostics)")
+                        }
+                        bar.hide()
+                        after(0.2, nextCycle)
+                    }
+                }
+            }
+        }
+        nextCycle()
+    }
+
+    private static func after(_ delay: TimeInterval, _ work: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private static func note(_ line: String) {
+        FileHandle.standardError.write((line + "\n").data(using: .utf8)!)
+    }
+
+    private static func report(_ failures: [(cycle: Int, shape: String, state: String)], of cycles: Int) {
+        if failures.isEmpty {
+            note("\(cycles) cycles, the bar came up every time.")
+        } else {
+            note("\(failures.count) of \(cycles) cycles failed, with these shapes:")
+            for shape in Set(failures.map { $0.shape }).sorted() { note("  \(shape)") }
+        }
+        exit(failures.isEmpty ? 0 : 1)
     }
 }
 
@@ -984,6 +1111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
     private var phase: Phase = .idle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let cycles = StressTest.requestedCycles {
+            StressTest.run(bar: bar, cycles: cycles)
+            return
+        }
         Log.write("--- launch ---")
         guard !quitIfAlreadyRunning() else { return }
         bar.delegate = self
@@ -1019,12 +1150,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         return true
     }
 
-    /// `kill -USR1 <pid>` triggers a break, `-USR2` renders the share card.
-    /// There is no other way to reach either without clicking through the menu,
-    /// and waiting twenty minutes for a break makes for a poor test loop.
+    /// `kill -USR1 <pid>` triggers a break, `-INFO` dismisses it the way Skip
+    /// does, `-USR2` renders the share card. There is no other way to reach any
+    /// of them without clicking through the menu, and waiting twenty minutes
+    /// for a break makes for a poor test loop. USR1 and INFO together drive a
+    /// whole cycle from a script, which is how the bar is checked for actually
+    /// coming up.
     private func installTestHooks() {
         let hooks: [(Int32, () -> Void)] = [
             (SIGUSR1, { [weak self] in self?.startPrompt() }),
+            (SIGINFO, { [weak self] in self?.barDidSkip() }),
             (SIGUSR2, {
                 let url = BreakCard.render(breaks: max(1, Settings.breaksTaken))
                 Log.write("share card: \(url?.path ?? "render failed")")
@@ -1269,6 +1404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
         phase = .prompt
         borders.show()
         bar.showPrompt()
+        verifyBarCameUp()
         // Shortcuts exist only for the duration of the alert: the rest of the
         // time they belong to other apps.
         shortcuts.enable(Shortcut.current) { [weak self] action in
@@ -1278,6 +1414,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, BarDelegate {
             // Go belongs to the prompt only. During the countdown it does
             // nothing: ending a break is Skip's job, whatever the preset.
             case .go: if self.phase == .prompt { self.barDidGo() }
+            }
+        }
+    }
+
+    /// A border with no bar leaves no way to answer the prompt, so the one
+    /// thing worth checking is that the window really came up. Late enough for
+    /// the entry animation, and for any handler left over from a dismissal,
+    /// to have run.
+    private func verifyBarCameUp() {
+        // Once per prompt. Rebuilding restarts the entry animation, so a second
+        // check fired on a timer of its own would measure a bar that is still
+        // fading in and rebuild it again, for as long as the prompt lasts.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, self.phase == .prompt, !self.bar.isReallyOnScreen else { return }
+            Log.write("BAR MISSING after showPrompt - \(self.bar.diagnostics)")
+            self.bar.showPrompt()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                guard let self, self.phase == .prompt else { return }
+                Log.write(self.bar.isReallyOnScreen ? "bar recovered after a rebuild"
+                                                    : "bar STILL missing - \(self.bar.diagnostics)")
             }
         }
     }
